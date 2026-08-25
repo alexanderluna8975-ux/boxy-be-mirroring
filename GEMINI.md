@@ -4,7 +4,7 @@
 
 Enterprise Multi-Branch Inventory & Sales Management Platform (Backend & Database).
 
-This is an enterprise-grade, multi-branch inventory, purchasing, point of sale (POS), and sales management backend platform built with **Java 21**, **Spring Boot 3**, and **MySQL 8 (InnoDB)**, designed for strict ACID transactional integrity, high concurrency, multi-location data isolation, complete auditability, and seamless interoperability with the **Angular 21** frontend (`boxy-fe`).
+This is an enterprise-grade, multi-branch inventory, purchasing, point of sale (POS), and sales management backend platform built with **Java 21/17**, **Spring Boot 3**, and **MySQL 8 (InnoDB)**, designed for strict ACID transactional integrity, high concurrency, multi-location data isolation, complete auditability, and seamless interoperability with the **Angular 21** frontend (`boxy-fe`).
 
 ---
 
@@ -48,7 +48,7 @@ The frontend is built on **Angular 21** utilizing standalone components, reactiv
    - DTO JSON serialization MUST use `camelCase` (e.g., `sellingPrice`, `warehouseId`, `minStockAlert`, `createdAt`).
    - Database column names MUST use `snake_case` (e.g., `selling_price`, `warehouse_id`), mapped via JPA `@Column(name = "...")` or Jackson naming strategy.
 2. **Date & Time Standards:**
-   - All timestamps must be returned as ISO-8601 UTC strings with `Z` suffix (e.g., `2026-08-19T22:45:00.000Z`).
+   - All timestamps must be returned as ISO-8601 UTC strings with `Z` suffix (e.g., `2026-08-25T17:15:00.000Z`).
    - Format: `Instant` / `OffsetDateTime` serialized via `Jackson2ObjectMapperBuilder`.
 3. **Numeric Precision for Angular Signals:**
    - Prices, subtotals, taxes, and totals MUST be serialized as numeric primitives (`BigDecimal` serialized to JSON `number`) rounded to 2 or 4 decimals (e.g., `129.50`), avoiding string wrapping unless explicit currency formatting is requested.
@@ -94,15 +94,31 @@ Updates (`UPDATE`) and deletions (`DELETE`) are strictly forbidden on the follow
 
 ---
 
-## 5. Domain Schema & Entity Models
+## 5. Domain Schema, Entity Models & Role Hierarchy
 
-### 5.1. Authentication & Multi-Branch Tenancy
+### 5.1. Authentication, Multi-Branch Tenancy & 5-Tier RBAC Matrix
 - **`companies`**: Organization profile, base currency, tax identification, negative stock allowance (`allow_negative_stock: boolean`).
 - **`branches`**: Physical locations/stores with separate address, contact, and default warehouse.
 - **`warehouses`**: Storage facilities belonging to specific branches (`branch_id`).
-- **`users`**: Authentication credentials (hashed using Argon2id/BCrypt), email (unique), full name, state (`ACTIVE`, `INACTIVE`, `SUSPENDED`).
-- **`roles` & `permissions`**: Granular RBAC permissions (`inventory:read`, `inventory:create`, `sales:checkout`, `transfers:approve`, etc.).
+- **`users`**: Authentication credentials (hashed using BCrypt), email (unique), full name, state (`ACTIVE`, `INACTIVE`, `SUSPENDED`).
 - **`user_branch_assignments`**: M:N mapping of users to allowed branches with contextual role override per branch.
+
+#### Formal 5-Tier Role & Permissions Hierarchy:
+1. **`ROLE_OWNER` (Owner / Super Admin):**
+   - **Scope:** Complete, unrestricted access to the entire platform, all company branches, security management, and global financial configurations.
+   - **Permissions:** `administration:users:manage`, `administration:roles:manage`, `administration:settings:manage`, `reports:view`, `inventory:read`, `inventory:write`, `inventory:adjust`, `inventory:transfer`, `purchasing:order`, `purchasing:receipt`, `sales:checkout`, `sales:session`, `sales:customers:manage`, `sales:receivables:read`.
+2. **`ROLE_ADMINISTRATOR` (Administrator):**
+   - **Scope:** Broad operational access across inventory, purchasing, sales, POS, and reports, **strictly excluding** user creation/management, role editing, and core company configuration.
+   - **Permissions:** `reports:view`, `inventory:read`, `inventory:write`, `inventory:adjust`, `inventory:transfer`, `purchasing:order`, `purchasing:receipt`, `sales:checkout`, `sales:session`, `sales:customers:manage`, `sales:receivables:read`.
+3. **`ROLE_SALESMAN_1` (Salesman 1 - Senior Sales with Receivables):**
+   - **Scope:** Commercial sales operations, cashier shifts, customer management, inventory catalog view, **plus privileged access to view Accounts Receivable / Customer Credit Limits (`sales:receivables:read`)**.
+   - **Permissions:** `inventory:read`, `sales:checkout`, `sales:session`, `sales:customers:manage`, `sales:receivables:read`.
+4. **`ROLE_SALESMAN_2` (Salesman 2 - Standard Sales):**
+   - **Scope:** Standard point-of-sale operations, customer registration, quotation/sales checkout, and product catalog view **without access to accounts receivable or debt management**.
+   - **Permissions:** `inventory:read`, `sales:checkout`, `sales:session`, `sales:customers:manage`.
+5. **`ROLE_STORE` (Store / Tienda Operator):**
+   - **Scope:** Direct physical store and warehouse operations: inventory management, stock levels, adjustments, inter-branch transfers, goods intake receipts, and POS sales, **without access to financial reports or system administration**.
+   - **Permissions:** `inventory:read`, `inventory:write`, `inventory:adjust`, `inventory:transfer`, `purchasing:receipt`, `sales:checkout`, `sales:session`, `sales:customers:manage`.
 
 ### 5.2. Catalog & Inventory Management
 - **`categories`** & **`brands`**: Hierarchical category tree (`parent_id`) and brand catalog.
@@ -168,8 +184,8 @@ Updates (`UPDATE`) and deletions (`DELETE`) are strictly forbidden on the follow
 
 ### 6.4. Multi-Tenant Branch Isolation
 - All query handlers and JPA repositories MUST enforce branch isolation based on the authenticated user's JWT claims:
-  - If user is `BRANCH_MANAGER`, `CASHIER`, or `WAREHOUSE_KEEPER`, filter automatically by `branch_id`.
-  - Only users with `GLOBAL_ADMIN` scope can execute cross-branch consolidated queries.
+  - If user is `ROLE_SALESMAN_1`, `ROLE_SALESMAN_2`, or `ROLE_STORE`, filter automatically by `branch_id`.
+  - Users with `ROLE_OWNER` or `ROLE_ADMINISTRATOR` scope can execute cross-branch consolidated queries.
 
 ---
 
@@ -210,7 +226,7 @@ Updates (`UPDATE`) and deletions (`DELETE`) are strictly forbidden on the follow
         "issue": "Quantity must be greater than 0"
       }
     ],
-    "timestamp": "2026-08-19T22:45:00.000Z",
+    "timestamp": "2026-08-25T17:15:00.000Z",
     "path": "/api/v1/sales/checkout"
   }
 }
