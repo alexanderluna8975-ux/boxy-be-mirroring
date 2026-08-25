@@ -16,6 +16,6 @@ public interface UserRepository extends JpaRepository<User, String> {
     List<User> findByCompanyIdAndDeletedAtIsNull(String companyId);
     Optional<User> findByIdAndDeletedAtIsNull(String id);
 
-    @Query("SELECT u FROM User u LEFT JOIN FETCH u.branchRoles ubr LEFT JOIN FETCH ubr.role r LEFT JOIN FETCH r.permissions WHERE u.username = :username AND u.deletedAt IS NULL")
-    Optional<User> findByUsernameWithRolesAndPermissions(@Param("username") String username);
+    @Query("SELECT u FROM User u WHERE (u.username = :identifier OR u.email = :identifier) AND u.deletedAt IS NULL")
+    Optional<User> findByUsernameOrEmail(@Param("identifier") String identifier);
 }

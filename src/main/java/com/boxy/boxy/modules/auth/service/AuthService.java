@@ -5,42 +5,47 @@ import com.boxy.boxy.core.security.CustomUserDetailsService;
 import com.boxy.boxy.core.security.JwtTokenProvider;
 import com.boxy.boxy.core.security.UserPrincipal;
 import com.boxy.boxy.modules.administration.entity.User;
-import com.boxy.boxy.modules.administration.entity.UserBranchRole;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.auth.dto.BranchAssignmentDto;
 import com.boxy.boxy.modules.auth.dto.LoginRequest;
 import com.boxy.boxy.modules.auth.dto.LoginResponse;
 import com.boxy.boxy.modules.auth.dto.UserProfileDto;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider tokenProvider;
     private final CustomUserDetailsService userDetailsService;
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Value("${app.jwt.expiration-ms:86400000}")
     private long jwtExpirationMs;
 
     @Transactional(readOnly = true)
     public LoginResponse login(LoginRequest request) {
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-        );
+        UserPrincipal userPrincipal = (UserPrincipal) userDetailsService.loadUserByUsername(request.getUsername());
 
-        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        log.info("Attempting login for user: {}, db password hash: {}", userPrincipal.getUsername(), userPrincipal.getPassword());
+        boolean matches = passwordEncoder.matches(request.getPassword(), userPrincipal.getPassword());
+        log.info("Password matches result: {}", matches);
+
+        if (!matches) {
+            String freshHash = passwordEncoder.encode(request.getPassword());
+            log.info("Generated fresh BCrypt hash for '{}': {}", request.getPassword(), freshHash);
+            throw new BusinessException("INVALID_CREDENTIALS", "Invalid username or password.");
+        }
+
         String token = tokenProvider.generateToken(userPrincipal);
         String refreshToken = tokenProvider.generateRefreshToken(userPrincipal);
 

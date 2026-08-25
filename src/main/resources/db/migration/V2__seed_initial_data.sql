@@ -1,4 +1,4 @@
-﻿-- =============================================================================
+-- =============================================================================
 -- V2__seed_initial_data.sql: Enterprise Seed Data for Boxy
 -- =============================================================================
 
@@ -19,12 +19,12 @@ VALUES
 ('w0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000002', 'WH-NOR-MAIN', 'North Store Warehouse', TRUE, TRUE);
 
 -- 4. SEED USERS (Password for all: password123)
--- BCrypt hash: $2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi (password123)
+-- BCrypt hash: $2a$10$8.UnVuG9HHgffUDAlk8qfOuVGkqRzgVymGe07xd00DMxs.AQubh4a (password123)
 INSERT INTO users (id, company_id, username, email, password_hash, first_name, last_name, status)
 VALUES 
-('u0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'admin', 'admin@boxy.com', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 'Alexander', 'Luna', 'ACTIVE'),
-('u0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'cashier1', 'cashier1@boxy.com', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 'Carlos', 'Gomez', 'ACTIVE'),
-('u0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 'warehouse1', 'warehouse1@boxy.com', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi', 'Sofia', 'Rodriguez', 'ACTIVE');
+('u0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'admin', 'admin@boxy.com', '$2a$10$8.UnVuG9HHgffUDAlk8qfOuVGkqRzgVymGe07xd00DMxs.AQubh4a', 'Alexander', 'Luna', 'ACTIVE'),
+('u0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'cashier1', 'cashier1@boxy.com', '$2a$10$8.UnVuG9HHgffUDAlk8qfOuVGkqRzgVymGe07xd00DMxs.AQubh4a', 'Carlos', 'Gomez', 'ACTIVE'),
+('u0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 'warehouse1', 'warehouse1@boxy.com', '$2a$10$8.UnVuG9HHgffUDAlk8qfOuVGkqRzgVymGe07xd00DMxs.AQubh4a', 'Sofia', 'Rodriguez', 'ACTIVE');
 
 -- 5. SEED ROLES & PERMISSIONS
 INSERT INTO roles (id, company_id, code, name, description, is_system)
