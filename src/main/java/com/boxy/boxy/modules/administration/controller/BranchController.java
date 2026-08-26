@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/administration/branches")
+@RequestMapping({"/api/v1/administration/branches", "/api/v1/administration/settings/branches"})
 @RequiredArgsConstructor
 @Tag(name = "Administration - Branches", description = "Endpoints for managing branches and physical locations")
 public class BranchController {
@@ -36,7 +36,7 @@ public class BranchController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('administration:manage') or hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('administration:settings:manage') or hasAuthority('administration:manage') or hasAuthority('ROLE_OWNER') or hasAuthority('ROLE_ADMIN')")
     @Operation(summary = "Create a new branch")
     public ResponseEntity<ApiResponse<BranchDto>> createBranch(@Valid @RequestBody CreateBranchRequest request) {
         BranchDto created = branchService.createBranch(request);

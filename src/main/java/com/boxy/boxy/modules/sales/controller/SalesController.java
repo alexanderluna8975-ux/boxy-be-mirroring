@@ -1,7 +1,6 @@
 package com.boxy.boxy.modules.sales.controller;
 
 import com.boxy.boxy.core.response.ApiResponse;
-import com.boxy.boxy.core.response.PageMeta;
 import com.boxy.boxy.modules.sales.dto.*;
 import com.boxy.boxy.modules.sales.service.SalesService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -9,10 +8,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,14 +19,14 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/sales")
 @RequiredArgsConstructor
-@Tag(name = "Sales & POS", description = "Endpoints for cashier sessions, customers, POS checkout, and invoicing")
+@Tag(name = "Sales & POS", description = "Endpoints for point-of-sale checkout, shifts, invoices and customers")
 public class SalesController {
 
     private final SalesService salesService;
 
     @GetMapping("/customers")
-    @Operation(summary = "List all customers")
-    public ResponseEntity<ApiResponse<List<CustomerDto>>> getCustomers() {
+    @Operation(summary = "List all active customers")
+    public ResponseEntity<ApiResponse<List<CustomerDto>>> getAllCustomers() {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getAllCustomers()));
     }
 
@@ -38,14 +37,7 @@ public class SalesController {
         return new ResponseEntity<>(ApiResponse.ok(created, "Customer created successfully"), HttpStatus.CREATED);
     }
 
-    @GetMapping("/sessions/active")
-    @Operation(summary = "Get current user's active cashier session in branch")
-    public ResponseEntity<ApiResponse<CashierSessionDto>> getActiveSession(@RequestParam String branchId) {
-        return ResponseEntity.ok(ApiResponse.ok(salesService.getActiveSession(branchId).orElse(null)));
-    }
-
     @PostMapping("/sessions/open")
-    @PreAuthorize("hasAuthority('sales:session') or hasAuthority('ROLE_CASHIER') or hasAuthority('ROLE_ADMIN')")
     @Operation(summary = "Open a new cashier shift session")
     public ResponseEntity<ApiResponse<CashierSessionDto>> openSession(@Valid @RequestBody OpenSessionRequest request) {
         CashierSessionDto session = salesService.openSession(request);
@@ -53,29 +45,38 @@ public class SalesController {
     }
 
     @PostMapping("/sessions/{id}/close")
-    @PreAuthorize("hasAuthority('sales:session') or hasAuthority('ROLE_CASHIER') or hasAuthority('ROLE_ADMIN')")
     @Operation(summary = "Close an active cashier shift session")
-    public ResponseEntity<ApiResponse<CashierSessionDto>> closeSession(@PathVariable String id, @Valid @RequestBody CloseSessionRequest request) {
+    public ResponseEntity<ApiResponse<CashierSessionDto>> closeSession(
+            @PathVariable String id,
+            @Valid @RequestBody CloseSessionRequest request) {
         CashierSessionDto session = salesService.closeSession(id, request);
         return ResponseEntity.ok(ApiResponse.ok(session, "Cashier session closed successfully"));
     }
 
-    @PostMapping("/checkout")
-    @PreAuthorize("hasAuthority('sales:checkout') or hasAuthority('ROLE_CASHIER') or hasAuthority('ROLE_ADMIN')")
-    @Operation(summary = "Execute atomic POS checkout with pessimistic stock lock and invoice generation")
-    public ResponseEntity<ApiResponse<InvoiceDto>> checkout(@Valid @RequestBody CheckoutRequest request) {
+    @GetMapping("/sessions/active")
+    @Operation(summary = "Get the active cashier shift session for the current user and branch")
+    public ResponseEntity<ApiResponse<CashierSessionDto>> getActiveSession(@RequestParam String branchId) {
+        return ResponseEntity.ok(ApiResponse.ok(salesService.getActiveSession(branchId).orElse(null)));
+    }
+
+    @PostMapping({"/checkout", "/sales"})
+    @Operation(summary = "Execute atomic POS checkout (stock deduction, invoice and payment)")
+    public ResponseEntity<ApiResponse<InvoiceDto>> checkout(
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody CheckoutRequest request) {
+        if (idempotencyKey != null && request.getIdempotencyKey() == null) {
+            request.setIdempotencyKey(idempotencyKey);
+        }
         InvoiceDto invoice = salesService.processCheckout(request);
-        return new ResponseEntity<>(ApiResponse.ok(invoice, "Sale processed and invoice issued successfully"), HttpStatus.CREATED);
+        return new ResponseEntity<>(ApiResponse.ok(invoice, "Sale completed successfully"), HttpStatus.CREATED);
     }
 
     @GetMapping("/invoices")
-    @Operation(summary = "Get paginated invoices")
+    @Operation(summary = "List sales invoices with pagination")
     public ResponseEntity<ApiResponse<List<InvoiceDto>>> getInvoices(
             @RequestParam(required = false) String branchId,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int limit) {
-        Page<InvoiceDto> paged = salesService.getInvoices(branchId, PageRequest.of(page - 1, limit));
-        PageMeta meta = PageMeta.of(page, limit, paged.getTotalElements());
-        return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), meta));
+            @PageableDefault(size = 20) Pageable pageable) {
+        Page<InvoiceDto> page = salesService.getInvoices(branchId, pageable);
+        return ResponseEntity.ok(ApiResponse.paged(page.getContent(), com.boxy.boxy.core.response.PageMeta.from(page)));
     }
 }

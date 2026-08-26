@@ -1,5 +1,6 @@
 package com.boxy.boxy.modules.administration.service;
 
+import com.boxy.boxy.core.exception.ResourceNotFoundException;
 import com.boxy.boxy.core.security.SecurityUtils;
 import com.boxy.boxy.modules.administration.dto.PermissionDto;
 import com.boxy.boxy.modules.administration.dto.RoleDto;
@@ -26,6 +27,13 @@ public class RoleService {
         return roleRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(this::toDto)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public RoleDto getRoleById(String id) {
+        Role role = roleRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Role", id));
+        return toDto(role);
     }
 
     @Transactional(readOnly = true)

@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.domain.Page;
 
 @Data
 @Builder
@@ -26,6 +27,17 @@ public class PageMeta {
                 .totalPages(totalPages)
                 .hasNextPage(page < totalPages)
                 .hasPreviousPage(page > 1)
+                .build();
+    }
+
+    public static PageMeta from(Page<?> page) {
+        return PageMeta.builder()
+                .page(page.getNumber() + 1)
+                .limit(page.getSize())
+                .totalItems(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .hasNextPage(page.hasNext())
+                .hasPreviousPage(page.hasPrevious())
                 .build();
     }
 }
