@@ -1,13 +1,14 @@
-﻿-- =============================================================================
+-- =============================================================================
 -- V1__initial_schema.sql: Enterprise Multi-Branch Inventory & POS Database Schema
 -- Engine: InnoDB | Charset: utf8mb4 | Collation: utf8mb4_0900_ai_ci
+-- All primary keys: BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY
 -- =============================================================================
 
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 1. COMPANIES & MULTI-TENANCY
 CREATE TABLE IF NOT EXISTS companies (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
     tax_id VARCHAR(50) NOT NULL,
     email VARCHAR(100),
@@ -26,8 +27,8 @@ CREATE TABLE IF NOT EXISTS companies (
 
 -- 2. BRANCHES & LOCATIONS
 CREATE TABLE IF NOT EXISTS branches (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
     code VARCHAR(50) NOT NULL,
     name VARCHAR(150) NOT NULL,
     address VARCHAR(255),
@@ -44,8 +45,8 @@ CREATE TABLE IF NOT EXISTS branches (
 
 -- 3. WAREHOUSES
 CREATE TABLE IF NOT EXISTS warehouses (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    branch_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    branch_id BIGINT UNSIGNED NOT NULL,
     code VARCHAR(50) NOT NULL,
     name VARCHAR(150) NOT NULL,
     is_default BOOLEAN NOT NULL DEFAULT FALSE,
@@ -59,15 +60,15 @@ CREATE TABLE IF NOT EXISTS warehouses (
 
 -- 4. USERS & AUTHENTICATION
 CREATE TABLE IF NOT EXISTS users (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
     username VARCHAR(50) NOT NULL UNIQUE,
     email VARCHAR(100) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     avatar_url VARCHAR(500),
-    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE', -- ACTIVE, INACTIVE, SUSPENDED
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     deleted_at DATETIME(6) NULL,
@@ -76,8 +77,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- 5. ROLES & PERMISSIONS (RBAC)
 CREATE TABLE IF NOT EXISTS roles (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
     code VARCHAR(50) NOT NULL,
     name VARCHAR(100) NOT NULL,
     description VARCHAR(255),
@@ -90,27 +91,27 @@ CREATE TABLE IF NOT EXISTS roles (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS permissions (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     module VARCHAR(50) NOT NULL,
     action VARCHAR(50) NOT NULL,
-    code VARCHAR(100) NOT NULL UNIQUE, -- e.g. inventory:read, sales:checkout
+    code VARCHAR(100) NOT NULL UNIQUE,
     description VARCHAR(255),
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS role_permissions (
-    role_id VARCHAR(36) NOT NULL,
-    permission_id VARCHAR(36) NOT NULL,
+    role_id BIGINT UNSIGNED NOT NULL,
+    permission_id BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (role_id, permission_id),
     CONSTRAINT fk_rp_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
     CONSTRAINT fk_rp_permission FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS user_branch_roles (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
-    branch_id VARCHAR(36) NOT NULL,
-    role_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT UNSIGNED NOT NULL,
+    branch_id BIGINT UNSIGNED NOT NULL,
+    role_id BIGINT UNSIGNED NOT NULL,
     is_default BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_ubr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -121,9 +122,9 @@ CREATE TABLE IF NOT EXISTS user_branch_roles (
 
 -- 6. CATALOG: CATEGORIES, BRANDS, UNITS, TAXES
 CREATE TABLE IF NOT EXISTS categories (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
-    parent_id VARCHAR(36) NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
+    parent_id BIGINT UNSIGNED NULL,
     code VARCHAR(50) NOT NULL,
     name VARCHAR(100) NOT NULL,
     description VARCHAR(255),
@@ -136,8 +137,8 @@ CREATE TABLE IF NOT EXISTS categories (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS brands (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
     name VARCHAR(100) NOT NULL,
     description VARCHAR(255),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -148,9 +149,9 @@ CREATE TABLE IF NOT EXISTS brands (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS units_of_measure (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
-    code VARCHAR(20) NOT NULL, -- e.g. NIU, KGM, LTR
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
+    code VARCHAR(20) NOT NULL,
     name VARCHAR(50) NOT NULL,
     symbol VARCHAR(10) NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -161,10 +162,10 @@ CREATE TABLE IF NOT EXISTS units_of_measure (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS taxes (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
     name VARCHAR(50) NOT NULL,
-    rate DECIMAL(6, 4) NOT NULL, -- e.g. 0.1800 for 18%
+    rate DECIMAL(6, 4) NOT NULL,
     is_default BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -175,12 +176,12 @@ CREATE TABLE IF NOT EXISTS taxes (
 
 -- 7. PRODUCTS & VARIANTS
 CREATE TABLE IF NOT EXISTS products (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
-    category_id VARCHAR(36) NULL,
-    brand_id VARCHAR(36) NULL,
-    unit_id VARCHAR(36) NOT NULL,
-    tax_id VARCHAR(36) NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
+    category_id BIGINT UNSIGNED NULL,
+    brand_id BIGINT UNSIGNED NULL,
+    unit_id BIGINT UNSIGNED NOT NULL,
+    tax_id BIGINT UNSIGNED NULL,
     sku VARCHAR(100) NOT NULL,
     barcode VARCHAR(100),
     name VARCHAR(200) NOT NULL,
@@ -193,8 +194,8 @@ CREATE TABLE IF NOT EXISTS products (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-    created_by VARCHAR(36) NULL,
-    updated_by VARCHAR(36) NULL,
+    created_by BIGINT UNSIGNED NULL,
+    updated_by BIGINT UNSIGNED NULL,
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_products_company FOREIGN KEY (company_id) REFERENCES companies(id),
     CONSTRAINT fk_products_category FOREIGN KEY (category_id) REFERENCES categories(id),
@@ -207,11 +208,11 @@ CREATE TABLE IF NOT EXISTS products (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS product_variants (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    product_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    product_id BIGINT UNSIGNED NOT NULL,
     sku VARCHAR(100) NOT NULL UNIQUE,
     barcode VARCHAR(100),
-    attributes JSON NOT NULL, -- e.g. {"size": "L", "color": "Blue"}
+    attributes JSON NOT NULL,
     cost_adjustment DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     price_adjustment DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -223,10 +224,10 @@ CREATE TABLE IF NOT EXISTS product_variants (
 
 -- 8. INVENTORY: STOCK LEVELS & KARDEX MOVEMENTS
 CREATE TABLE IF NOT EXISTS stock_levels (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    warehouse_id VARCHAR(36) NOT NULL,
-    product_id VARCHAR(36) NOT NULL,
-    variant_id VARCHAR(36) NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    warehouse_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    variant_id BIGINT UNSIGNED NULL,
     quantity_available DECIMAL(12, 4) NOT NULL DEFAULT 0.0000,
     quantity_reserved DECIMAL(12, 4) NOT NULL DEFAULT 0.0000,
     quantity_in_transit DECIMAL(12, 4) NOT NULL DEFAULT 0.0000,
@@ -240,17 +241,17 @@ CREATE TABLE IF NOT EXISTS stock_levels (
 -- IMMUTABLE APPEND-ONLY KARDEX
 CREATE TABLE IF NOT EXISTS stock_movements (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    warehouse_id VARCHAR(36) NOT NULL,
-    product_id VARCHAR(36) NOT NULL,
-    variant_id VARCHAR(36) NULL,
-    movement_type VARCHAR(30) NOT NULL, -- PURCHASE_IN, SALE_OUT, TRANSFER_IN, TRANSFER_OUT, ADJUSTMENT_ADD, ADJUSTMENT_SUB, RETURN_IN
+    warehouse_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    variant_id BIGINT UNSIGNED NULL,
+    movement_type VARCHAR(30) NOT NULL,
     quantity DECIMAL(12, 4) NOT NULL,
     unit_cost DECIMAL(14, 4) NOT NULL,
     balance_after DECIMAL(12, 4) NOT NULL,
-    reference_type VARCHAR(50) NOT NULL, -- INVOICE, PURCHASE_ORDER, TRANSFER, ADJUSTMENT
-    reference_id VARCHAR(36) NOT NULL,
+    reference_type VARCHAR(50) NOT NULL,
+    reference_id VARCHAR(50) NOT NULL,
     notes VARCHAR(255),
-    created_by VARCHAR(36) NULL,
+    created_by BIGINT UNSIGNED NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_mov_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
     CONSTRAINT fk_mov_product FOREIGN KEY (product_id) REFERENCES products(id),
@@ -261,30 +262,31 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 
 -- 9. STOCK TRANSFERS & ADJUSTMENTS
 CREATE TABLE IF NOT EXISTS stock_transfers (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
     transfer_number VARCHAR(50) NOT NULL UNIQUE,
-    source_warehouse_id VARCHAR(36) NOT NULL,
-    destination_warehouse_id VARCHAR(36) NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT', -- DRAFT, REQUESTED, IN_TRANSIT, RECEIVED, REJECTED, CANCELLED
+    source_warehouse_id BIGINT UNSIGNED NOT NULL,
+    destination_warehouse_id BIGINT UNSIGNED NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
     notes VARCHAR(500),
-    requested_by VARCHAR(36) NOT NULL,
-    dispatched_by VARCHAR(36) NULL,
-    received_by VARCHAR(36) NULL,
+    requested_by BIGINT UNSIGNED NOT NULL,
+    dispatched_by BIGINT UNSIGNED NULL,
+    received_by BIGINT UNSIGNED NULL,
     dispatched_at DATETIME(6) NULL,
     received_at DATETIME(6) NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_st_company FOREIGN KEY (company_id) REFERENCES companies(id),
     CONSTRAINT fk_st_source FOREIGN KEY (source_warehouse_id) REFERENCES warehouses(id),
     CONSTRAINT fk_st_dest FOREIGN KEY (destination_warehouse_id) REFERENCES warehouses(id),
     CONSTRAINT fk_st_user FOREIGN KEY (requested_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS stock_transfer_items (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    transfer_id VARCHAR(36) NOT NULL,
-    product_id VARCHAR(36) NOT NULL,
-    variant_id VARCHAR(36) NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    transfer_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    variant_id BIGINT UNSIGNED NULL,
     quantity_requested DECIMAL(12, 4) NOT NULL,
     quantity_received DECIMAL(12, 4) NOT NULL DEFAULT 0.0000,
     CONSTRAINT fk_sti_transfer FOREIGN KEY (transfer_id) REFERENCES stock_transfers(id) ON DELETE CASCADE,
@@ -292,24 +294,25 @@ CREATE TABLE IF NOT EXISTS stock_transfer_items (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS stock_adjustments (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
-    warehouse_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
+    warehouse_id BIGINT UNSIGNED NOT NULL,
     adjustment_number VARCHAR(50) NOT NULL UNIQUE,
-    reason VARCHAR(100) NOT NULL, -- PHYSICAL_COUNT, DAMAGE, EXPIRY, THEFT, OTHER
+    reason VARCHAR(100) NOT NULL,
     notes VARCHAR(500),
     status VARCHAR(20) NOT NULL DEFAULT 'COMPLETED',
-    created_by VARCHAR(36) NOT NULL,
+    created_by BIGINT UNSIGNED NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_sa_company FOREIGN KEY (company_id) REFERENCES companies(id),
     CONSTRAINT fk_sa_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
     CONSTRAINT fk_sa_user FOREIGN KEY (created_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS stock_adjustment_items (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    adjustment_id VARCHAR(36) NOT NULL,
-    product_id VARCHAR(36) NOT NULL,
-    variant_id VARCHAR(36) NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    adjustment_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    variant_id BIGINT UNSIGNED NULL,
     previous_quantity DECIMAL(12, 4) NOT NULL,
     new_quantity DECIMAL(12, 4) NOT NULL,
     difference_quantity DECIMAL(12, 4) NOT NULL,
@@ -320,8 +323,8 @@ CREATE TABLE IF NOT EXISTS stock_adjustment_items (
 
 -- 10. PURCHASING: SUPPLIERS, ORDERS, RECEIPTS
 CREATE TABLE IF NOT EXISTS suppliers (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
     tax_id VARCHAR(50) NOT NULL,
     name VARCHAR(150) NOT NULL,
     contact_name VARCHAR(100),
@@ -338,31 +341,32 @@ CREATE TABLE IF NOT EXISTS suppliers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS purchase_orders (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
-    branch_id VARCHAR(36) NOT NULL,
-    supplier_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
+    branch_id BIGINT UNSIGNED NOT NULL,
+    supplier_id BIGINT UNSIGNED NOT NULL,
     order_number VARCHAR(50) NOT NULL UNIQUE,
     issue_date DATE NOT NULL,
     expected_delivery_date DATE,
     subtotal DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     tax_amount DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     total_amount DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
-    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT', -- DRAFT, ISSUED, APPROVED, PARTIALLY_RECEIVED, COMPLETED, CANCELLED
+    status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
     notes VARCHAR(500),
-    created_by VARCHAR(36) NOT NULL,
+    created_by BIGINT UNSIGNED NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_po_company FOREIGN KEY (company_id) REFERENCES companies(id),
     CONSTRAINT fk_po_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
     CONSTRAINT fk_po_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
     CONSTRAINT fk_po_user FOREIGN KEY (created_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS purchase_order_items (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    purchase_order_id VARCHAR(36) NOT NULL,
-    product_id VARCHAR(36) NOT NULL,
-    variant_id VARCHAR(36) NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    purchase_order_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    variant_id BIGINT UNSIGNED NULL,
     quantity_ordered DECIMAL(12, 4) NOT NULL,
     quantity_received DECIMAL(12, 4) NOT NULL DEFAULT 0.0000,
     unit_cost DECIMAL(14, 4) NOT NULL,
@@ -373,14 +377,14 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS goods_receipts (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    purchase_order_id VARCHAR(36) NOT NULL,
-    warehouse_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    purchase_order_id BIGINT UNSIGNED NOT NULL,
+    warehouse_id BIGINT UNSIGNED NOT NULL,
     receipt_number VARCHAR(50) NOT NULL UNIQUE,
     supplier_invoice_number VARCHAR(50),
     received_date DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     notes VARCHAR(500),
-    created_by VARCHAR(36) NOT NULL,
+    created_by BIGINT UNSIGNED NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_gr_po FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id),
     CONSTRAINT fk_gr_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
@@ -388,10 +392,10 @@ CREATE TABLE IF NOT EXISTS goods_receipts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS goods_receipt_items (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    goods_receipt_id VARCHAR(36) NOT NULL,
-    product_id VARCHAR(36) NOT NULL,
-    variant_id VARCHAR(36) NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    goods_receipt_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    variant_id BIGINT UNSIGNED NULL,
     quantity_received DECIMAL(12, 4) NOT NULL,
     unit_cost DECIMAL(14, 4) NOT NULL,
     CONSTRAINT fk_gri_receipt FOREIGN KEY (goods_receipt_id) REFERENCES goods_receipts(id) ON DELETE CASCADE,
@@ -400,9 +404,9 @@ CREATE TABLE IF NOT EXISTS goods_receipt_items (
 
 -- 11. SALES & POS: CUSTOMERS, SESSIONS, ORDERS, INVOICES, PAYMENTS
 CREATE TABLE IF NOT EXISTS customers (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
-    document_type VARCHAR(20) NOT NULL, -- DNI, RUC, RFC, PASSPORT, OTHER
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
+    document_type VARCHAR(20) NOT NULL,
     document_number VARCHAR(50) NOT NULL,
     name VARCHAR(150) NOT NULL,
     email VARCHAR(100),
@@ -419,16 +423,16 @@ CREATE TABLE IF NOT EXISTS customers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS cashier_sessions (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    branch_id VARCHAR(36) NOT NULL,
-    user_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    branch_id BIGINT UNSIGNED NOT NULL,
+    user_id BIGINT UNSIGNED NOT NULL,
     opened_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     closed_at DATETIME(6) NULL,
     initial_cash DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     expected_cash DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     actual_cash DECIMAL(14, 4) NULL,
     difference DECIMAL(14, 4) NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'OPEN', -- OPEN, CLOSED
+    status VARCHAR(20) NOT NULL DEFAULT 'OPEN',
     notes VARCHAR(500),
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_cs_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
@@ -436,31 +440,32 @@ CREATE TABLE IF NOT EXISTS cashier_sessions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS sales_orders (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
-    branch_id VARCHAR(36) NOT NULL,
-    customer_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
+    branch_id BIGINT UNSIGNED NOT NULL,
+    customer_id BIGINT UNSIGNED NOT NULL,
     order_number VARCHAR(50) NOT NULL UNIQUE,
-    order_type VARCHAR(20) NOT NULL DEFAULT 'SALE', -- QUOTATION, SALE
-    status VARCHAR(30) NOT NULL DEFAULT 'CONFIRMED', -- QUOTATION, CONFIRMED, PAID, CANCELLED
+    order_type VARCHAR(20) NOT NULL DEFAULT 'SALE',
+    status VARCHAR(30) NOT NULL DEFAULT 'CONFIRMED',
     subtotal DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     discount_amount DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     tax_amount DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     total_amount DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     notes VARCHAR(500),
-    created_by VARCHAR(36) NOT NULL,
+    created_by BIGINT UNSIGNED NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_so_company FOREIGN KEY (company_id) REFERENCES companies(id),
     CONSTRAINT fk_so_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
     CONSTRAINT fk_so_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
     CONSTRAINT fk_so_user FOREIGN KEY (created_by) REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS sales_order_items (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    sales_order_id VARCHAR(36) NOT NULL,
-    product_id VARCHAR(36) NOT NULL,
-    variant_id VARCHAR(36) NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    sales_order_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    variant_id BIGINT UNSIGNED NULL,
     quantity DECIMAL(12, 4) NOT NULL,
     unit_price DECIMAL(14, 4) NOT NULL,
     discount_rate DECIMAL(6, 4) NOT NULL DEFAULT 0.0000,
@@ -471,14 +476,14 @@ CREATE TABLE IF NOT EXISTS sales_order_items (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS invoices (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
-    branch_id VARCHAR(36) NOT NULL,
-    warehouse_id VARCHAR(36) NOT NULL,
-    cashier_session_id VARCHAR(36) NOT NULL,
-    customer_id VARCHAR(36) NOT NULL,
-    sales_order_id VARCHAR(36) NULL,
-    document_type VARCHAR(20) NOT NULL, -- INVOICE, TICKET, RECEIPT
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    company_id BIGINT UNSIGNED NOT NULL,
+    branch_id BIGINT UNSIGNED NOT NULL,
+    warehouse_id BIGINT UNSIGNED NOT NULL,
+    cashier_session_id BIGINT UNSIGNED NOT NULL,
+    customer_id BIGINT UNSIGNED NOT NULL,
+    sales_order_id BIGINT UNSIGNED NULL,
+    document_type VARCHAR(20) NOT NULL,
     series VARCHAR(10) NOT NULL,
     number VARCHAR(20) NOT NULL,
     idempotency_key VARCHAR(100) NULL UNIQUE,
@@ -486,9 +491,10 @@ CREATE TABLE IF NOT EXISTS invoices (
     discount_amount DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     tax_amount DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
     total_amount DECIMAL(14, 4) NOT NULL DEFAULT 0.0000,
-    status VARCHAR(20) NOT NULL DEFAULT 'ISSUED', -- ISSUED, VOIDED
-    created_by VARCHAR(36) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ISSUED',
+    created_by BIGINT UNSIGNED NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_inv_company FOREIGN KEY (company_id) REFERENCES companies(id),
     CONSTRAINT fk_inv_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
     CONSTRAINT fk_inv_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
     CONSTRAINT fk_inv_session FOREIGN KEY (cashier_session_id) REFERENCES cashier_sessions(id),
@@ -498,10 +504,10 @@ CREATE TABLE IF NOT EXISTS invoices (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS invoice_items (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    invoice_id VARCHAR(36) NOT NULL,
-    product_id VARCHAR(36) NOT NULL,
-    variant_id VARCHAR(36) NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    invoice_id BIGINT UNSIGNED NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    variant_id BIGINT UNSIGNED NULL,
     product_name VARCHAR(200) NOT NULL,
     sku VARCHAR(100) NOT NULL,
     quantity DECIMAL(12, 4) NOT NULL,
@@ -515,9 +521,9 @@ CREATE TABLE IF NOT EXISTS invoice_items (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS payments (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    invoice_id VARCHAR(36) NOT NULL,
-    payment_method VARCHAR(30) NOT NULL, -- CASH, CREDIT_CARD, DEBIT_CARD, BANK_TRANSFER, STORE_CREDIT
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    invoice_id BIGINT UNSIGNED NOT NULL,
+    payment_method VARCHAR(30) NOT NULL,
     amount DECIMAL(14, 4) NOT NULL,
     reference_code VARCHAR(100),
     status VARCHAR(20) NOT NULL DEFAULT 'CONFIRMED',
@@ -526,14 +532,14 @@ CREATE TABLE IF NOT EXISTS payments (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS credit_notes (
-    id VARCHAR(36) NOT NULL PRIMARY KEY,
-    invoice_id VARCHAR(36) NOT NULL,
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    invoice_id BIGINT UNSIGNED NOT NULL,
     series VARCHAR(10) NOT NULL,
     number VARCHAR(20) NOT NULL,
     reason VARCHAR(255) NOT NULL,
     amount DECIMAL(14, 4) NOT NULL,
     restock_items BOOLEAN NOT NULL DEFAULT TRUE,
-    created_by VARCHAR(36) NOT NULL,
+    created_by BIGINT UNSIGNED NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_cn_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id),
     CONSTRAINT fk_cn_user FOREIGN KEY (created_by) REFERENCES users(id)
@@ -542,15 +548,16 @@ CREATE TABLE IF NOT EXISTS credit_notes (
 -- 12. AUDIT LOGS (APPEND-ONLY)
 CREATE TABLE IF NOT EXISTS audit_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    company_id VARCHAR(36) NOT NULL,
-    user_id VARCHAR(36) NULL,
-    action VARCHAR(50) NOT NULL, -- CREATE, UPDATE, DELETE, LOGIN, CHECKOUT
-    resource_type VARCHAR(50) NOT NULL, -- PRODUCT, INVOICE, USER, SETTING
-    resource_id VARCHAR(36) NULL,
+    company_id BIGINT UNSIGNED NOT NULL,
+    user_id BIGINT UNSIGNED NULL,
+    action VARCHAR(50) NOT NULL,
+    resource_type VARCHAR(50) NOT NULL,
+    resource_id VARCHAR(50) NULL,
     ip_address VARCHAR(45),
     user_agent VARCHAR(255),
     details JSON NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_audit_company FOREIGN KEY (company_id) REFERENCES companies(id),
     INDEX idx_audit_user (user_id),
     INDEX idx_audit_resource (resource_type, resource_id),
     INDEX idx_audit_date (created_at)

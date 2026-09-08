@@ -66,7 +66,7 @@ public class AuthService {
             throw new BusinessException("INVALID_REFRESH_TOKEN", "The provided refresh token is expired or invalid.");
         }
 
-        String userId = tokenProvider.getUserIdFromToken(refreshToken);
+        Long userId = tokenProvider.getUserIdFromToken(refreshToken);
         UserPrincipal userPrincipal = (UserPrincipal) userDetailsService.loadUserById(userId);
 
         String newToken = tokenProvider.generateToken(userPrincipal);
@@ -82,7 +82,7 @@ public class AuthService {
     }
 
     @Transactional(readOnly = true)
-    public UserProfileDto getProfile(String userId) {
+    public UserProfileDto getProfile(Long userId) {
         User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new BusinessException("USER_NOT_FOUND", "User not found"));
 
@@ -104,7 +104,7 @@ public class AuthService {
                 .distinct()
                 .toList();
 
-        String activeBranchId = branches.stream()
+        Long activeBranchId = branches.stream()
                 .filter(BranchAssignmentDto::isDefault)
                 .map(BranchAssignmentDto::getBranchId)
                 .findFirst()

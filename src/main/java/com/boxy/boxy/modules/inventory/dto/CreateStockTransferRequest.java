@@ -11,10 +11,10 @@ import java.util.List;
 @Data
 public class CreateStockTransferRequest {
     @NotBlank(message = "Source warehouse is required")
-    private String sourceWarehouseId;
+    private Long sourceWarehouseId;
 
     @NotBlank(message = "Destination warehouse is required")
-    private String destinationWarehouseId;
+    private Long destinationWarehouseId;
 
     private String notes;
 
@@ -24,7 +24,7 @@ public class CreateStockTransferRequest {
     @Data
     public static class TransferItemRequest {
         @NotBlank(message = "Product ID is required")
-        private String productId;
+        private Long productId;
 
         @NotNull(message = "Quantity is required")
         private BigDecimal quantity;

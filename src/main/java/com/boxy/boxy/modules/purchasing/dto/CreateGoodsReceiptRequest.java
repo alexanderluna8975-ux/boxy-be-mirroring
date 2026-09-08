@@ -10,10 +10,10 @@ import java.util.List;
 @Data
 public class CreateGoodsReceiptRequest {
     @NotBlank(message = "Purchase Order ID is required")
-    private String purchaseOrderId;
+    private Long purchaseOrderId;
 
     @NotBlank(message = "Destination warehouse ID is required")
-    private String warehouseId;
+    private Long warehouseId;
 
     private String supplierInvoiceNumber;
     private String notes;
@@ -24,7 +24,7 @@ public class CreateGoodsReceiptRequest {
     @Data
     public static class GoodsReceiptItemRequest {
         @NotBlank(message = "Product ID is required")
-        private String productId;
+        private Long productId;
 
         @NotBlank(message = "Purchase order item ID is required")
         private String purchaseOrderItemId;

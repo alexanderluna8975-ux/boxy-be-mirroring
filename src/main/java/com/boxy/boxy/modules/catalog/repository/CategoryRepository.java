@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface CategoryRepository extends JpaRepository<Category, String> {
-    List<Category> findByCompanyIdAndDeletedAtIsNull(String companyId);
-    Optional<Category> findByIdAndDeletedAtIsNull(String id);
+public interface CategoryRepository extends JpaRepository<Category, Long> {
+    List<Category> findByCompanyIdAndDeletedAtIsNull(Long companyId);
+    Optional<Category> findByIdAndDeletedAtIsNull(Long id);
 }

@@ -10,11 +10,11 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface UserRepository extends JpaRepository<User, String> {
+public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsernameAndDeletedAtIsNull(String username);
     Optional<User> findByEmailAndDeletedAtIsNull(String email);
-    List<User> findByCompanyIdAndDeletedAtIsNull(String companyId);
-    Optional<User> findByIdAndDeletedAtIsNull(String id);
+    List<User> findByCompanyIdAndDeletedAtIsNull(Long companyId);
+    Optional<User> findByIdAndDeletedAtIsNull(Long id);
 
     @Query("SELECT u FROM User u WHERE (u.username = :identifier OR u.email = :identifier) AND u.deletedAt IS NULL")
     Optional<User> findByUsernameOrEmail(@Param("identifier") String identifier);

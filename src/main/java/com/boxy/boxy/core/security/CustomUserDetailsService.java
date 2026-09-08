@@ -26,7 +26,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with username or email: " + identifier));
 
         List<String> rolesAndPermissions = new ArrayList<>();
-        String defaultBranchId = null;
+        Long defaultBranchId = null;
 
         for (UserBranchRole ubr : user.getBranchRoles()) {
             if (ubr.getRole() != null) {
@@ -55,7 +55,7 @@ public class CustomUserDetailsService implements UserDetailsService {
     }
 
     @Transactional(readOnly = true)
-    public UserDetails loadUserById(String id) {
+    public UserDetails loadUserById(Long id) {
         User user = userRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + id));
 

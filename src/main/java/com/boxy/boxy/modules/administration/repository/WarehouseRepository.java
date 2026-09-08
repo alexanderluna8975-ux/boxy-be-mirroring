@@ -8,9 +8,9 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface WarehouseRepository extends JpaRepository<Warehouse, String> {
-    List<Warehouse> findByBranchIdAndDeletedAtIsNull(String branchId);
-    List<Warehouse> findByBranchCompanyIdAndDeletedAtIsNull(String companyId);
-    Optional<Warehouse> findByIdAndDeletedAtIsNull(String id);
-    Optional<Warehouse> findByBranchIdAndIsDefaultTrueAndDeletedAtIsNull(String branchId);
+public interface WarehouseRepository extends JpaRepository<Warehouse, Long> {
+    List<Warehouse> findByBranchIdAndDeletedAtIsNull(Long branchId);
+    List<Warehouse> findByBranchCompanyIdAndDeletedAtIsNull(Long companyId);
+    Optional<Warehouse> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Warehouse> findByBranchIdAndIsDefaultTrueAndDeletedAtIsNull(Long branchId);
 }

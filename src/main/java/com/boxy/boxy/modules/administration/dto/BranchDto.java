@@ -13,7 +13,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class BranchDto {
-    private String id;
+    private Long id;
     private String code;
     private String name;
     private String address;

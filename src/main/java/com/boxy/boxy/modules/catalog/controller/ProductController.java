@@ -32,8 +32,8 @@ public class ProductController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(required = false) String search,
-            @RequestParam(required = false) String categoryId,
-            @RequestParam(required = false) String brandId,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) Long brandId,
             @RequestParam(required = false) Boolean isActive) {
         Page<ProductDto> paged = productService.getProducts(
                 search, categoryId, brandId, isActive,
@@ -44,12 +44,12 @@ public class ProductController {
 
     @GetMapping("/products/{id}")
     @Operation(summary = "Get product by ID")
-    public ResponseEntity<ApiResponse<ProductDto>> getProductById(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<ProductDto>> getProductById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(productService.getProductById(id)));
     }
 
     @PostMapping("/products")
-    @PreAuthorize("hasAuthority('inventory:write') or hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('inventory:write') or hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_ADMIN')")
     @Operation(summary = "Create a new product")
     public ResponseEntity<ApiResponse<ProductDto>> createProduct(@Valid @RequestBody CreateProductRequest request) {
         ProductDto created = productService.createProduct(request);

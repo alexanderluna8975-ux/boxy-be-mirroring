@@ -9,13 +9,13 @@ import java.math.BigDecimal;
 
 @Data
 public class CreateProductRequest {
-    private String categoryId;
-    private String brandId;
+    private Long categoryId;
+    private Long brandId;
 
-    @NotBlank(message = "Unit of measure ID is required")
-    private String unitId;
+    @NotNull(message = "Unit of measure ID is required")
+    private Long unitId;
 
-    private String taxId;
+    private Long taxId;
 
     @NotBlank(message = "SKU is required")
     private String sku;

@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PermissionDto {
-    private String id;
+    private Long id;
     private String module;
     private String action;
     private String code;

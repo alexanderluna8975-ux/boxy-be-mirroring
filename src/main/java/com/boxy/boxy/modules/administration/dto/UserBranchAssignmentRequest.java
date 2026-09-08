@@ -6,10 +6,10 @@ import lombok.Data;
 @Data
 public class UserBranchAssignmentRequest {
     @NotBlank(message = "Branch ID is required")
-    private String branchId;
+    private Long branchId;
 
     @NotBlank(message = "Role ID is required")
-    private String roleId;
+    private Long roleId;
 
     private boolean isDefault;
 }

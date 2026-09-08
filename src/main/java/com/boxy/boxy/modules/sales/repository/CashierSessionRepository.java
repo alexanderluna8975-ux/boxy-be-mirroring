@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface CashierSessionRepository extends JpaRepository<CashierSession, String> {
-    Optional<CashierSession> findByUserIdAndBranchIdAndStatus(String userId, String branchId, String status);
-    List<CashierSession> findByBranchIdOrderByOpenedAtDesc(String branchId);
+public interface CashierSessionRepository extends JpaRepository<CashierSession, Long> {
+    Optional<CashierSession> findByUserIdAndBranchIdAndStatus(Long userId, Long branchId, String status);
+    List<CashierSession> findByBranchIdOrderByOpenedAtDesc(Long branchId);
 }

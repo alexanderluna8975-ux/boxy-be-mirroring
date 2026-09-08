@@ -13,12 +13,12 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class StockLevelDto {
-    private String id;
-    private String warehouseId;
+    private Long id;
+    private Long warehouseId;
     private String warehouseName;
-    private String branchId;
+    private Long branchId;
     private String branchName;
-    private String productId;
+    private Long productId;
     private String productSku;
     private String productName;
     private BigDecimal quantityAvailable;

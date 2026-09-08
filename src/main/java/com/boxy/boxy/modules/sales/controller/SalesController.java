@@ -47,7 +47,7 @@ public class SalesController {
     @PostMapping("/sessions/{id}/close")
     @Operation(summary = "Close an active cashier shift session")
     public ResponseEntity<ApiResponse<CashierSessionDto>> closeSession(
-            @PathVariable String id,
+            @PathVariable Long id,
             @Valid @RequestBody CloseSessionRequest request) {
         CashierSessionDto session = salesService.closeSession(id, request);
         return ResponseEntity.ok(ApiResponse.ok(session, "Cashier session closed successfully"));
@@ -55,7 +55,7 @@ public class SalesController {
 
     @GetMapping("/sessions/active")
     @Operation(summary = "Get the active cashier shift session for the current user and branch")
-    public ResponseEntity<ApiResponse<CashierSessionDto>> getActiveSession(@RequestParam String branchId) {
+    public ResponseEntity<ApiResponse<CashierSessionDto>> getActiveSession(@RequestParam Long branchId) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getActiveSession(branchId).orElse(null)));
     }
 
@@ -74,7 +74,7 @@ public class SalesController {
     @GetMapping("/invoices")
     @Operation(summary = "List sales invoices with pagination")
     public ResponseEntity<ApiResponse<List<InvoiceDto>>> getInvoices(
-            @RequestParam(required = false) String branchId,
+            @RequestParam(required = false) Long branchId,
             @PageableDefault(size = 20) Pageable pageable) {
         Page<InvoiceDto> page = salesService.getInvoices(branchId, pageable);
         return ResponseEntity.ok(ApiResponse.paged(page.getContent(), com.boxy.boxy.core.response.PageMeta.from(page)));

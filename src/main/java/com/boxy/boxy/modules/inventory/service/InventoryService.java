@@ -44,20 +44,20 @@ public class InventoryService {
     private final CompanyRepository companyRepository;
 
     @Transactional(readOnly = true)
-    public List<StockLevelDto> getStockLevelsByWarehouse(String warehouseId) {
+    public List<StockLevelDto> getStockLevelsByWarehouse(Long warehouseId) {
         return stockLevelRepository.findByWarehouseId(warehouseId).stream()
                 .map(this::toStockLevelDto)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public Page<StockMovementDto> getMovementsByWarehouse(String warehouseId, Pageable pageable) {
+    public Page<StockMovementDto> getMovementsByWarehouse(Long warehouseId, Pageable pageable) {
         return stockMovementRepository.findByWarehouseIdOrderByCreatedAtDesc(warehouseId, pageable)
                 .map(this::toMovementDto);
     }
 
     @Transactional(readOnly = true)
-    public Page<StockMovementDto> getMovementsByProduct(String productId, Pageable pageable) {
+    public Page<StockMovementDto> getMovementsByProduct(Long productId, Pageable pageable) {
         return stockMovementRepository.findByProductIdOrderByCreatedAtDesc(productId, pageable)
                 .map(this::toMovementDto);
     }
@@ -76,7 +76,7 @@ public class InventoryService {
         User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.getCurrentUserId())
                 .orElseThrow(() -> new BusinessException("UNAUTHORIZED", "User not found"));
 
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
@@ -111,7 +111,7 @@ public class InventoryService {
     }
 
     @Transactional
-    public StockTransferDto dispatchTransfer(String transferId) {
+    public StockTransferDto dispatchTransfer(Long transferId) {
         StockTransfer transfer = stockTransferRepository.findById(transferId)
                 .orElseThrow(() -> new ResourceNotFoundException("StockTransfer", transferId));
 
@@ -141,7 +141,7 @@ public class InventoryService {
                     .unitCost(item.getProduct().getCostPrice())
                     .balanceAfter(stock.getQuantityAvailable())
                     .referenceType("TRANSFER")
-                    .referenceId(transfer.getId())
+                    .referenceId(String.valueOf(transfer.getId()))
                     .notes("Dispatched transfer to " + transfer.getDestinationWarehouse().getName())
                     .createdBy(transfer.getRequestedBy())
                     .build();
@@ -156,7 +156,7 @@ public class InventoryService {
     }
 
     @Transactional
-    public StockTransferDto receiveTransfer(String transferId) {
+    public StockTransferDto receiveTransfer(Long transferId) {
         StockTransfer transfer = stockTransferRepository.findById(transferId)
                 .orElseThrow(() -> new ResourceNotFoundException("StockTransfer", transferId));
 
@@ -198,7 +198,7 @@ public class InventoryService {
                     .unitCost(item.getProduct().getCostPrice())
                     .balanceAfter(destStock.getQuantityAvailable())
                     .referenceType("TRANSFER")
-                    .referenceId(transfer.getId())
+                    .referenceId(String.valueOf(transfer.getId()))
                     .notes("Received transfer from " + transfer.getSourceWarehouse().getName())
                     .createdBy(transfer.getRequestedBy())
                     .build();

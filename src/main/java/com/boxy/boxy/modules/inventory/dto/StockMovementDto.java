@@ -14,9 +14,9 @@ import java.time.Instant;
 @AllArgsConstructor
 public class StockMovementDto {
     private Long id;
-    private String warehouseId;
+    private Long warehouseId;
     private String warehouseName;
-    private String productId;
+    private Long productId;
     private String productSku;
     private String productName;
     private String movementType;

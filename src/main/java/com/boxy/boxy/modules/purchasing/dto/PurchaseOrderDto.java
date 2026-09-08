@@ -15,10 +15,10 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PurchaseOrderDto {
-    private String id;
-    private String branchId;
+    private Long id;
+    private Long branchId;
     private String branchName;
-    private String supplierId;
+    private Long supplierId;
     private String supplierName;
     private String orderNumber;
     private LocalDate issueDate;

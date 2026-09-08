@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface UnitOfMeasureRepository extends JpaRepository<UnitOfMeasure, String> {
-    List<UnitOfMeasure> findByCompanyIdAndDeletedAtIsNull(String companyId);
-    Optional<UnitOfMeasure> findByIdAndDeletedAtIsNull(String id);
+public interface UnitOfMeasureRepository extends JpaRepository<UnitOfMeasure, Long> {
+    List<UnitOfMeasure> findByCompanyIdAndDeletedAtIsNull(Long companyId);
+    Optional<UnitOfMeasure> findByIdAndDeletedAtIsNull(Long id);
 }

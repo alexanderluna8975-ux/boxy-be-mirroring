@@ -13,7 +13,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PaymentDto {
-    private String id;
+    private Long id;
     private String paymentMethod;
     private BigDecimal amount;
     private String referenceCode;

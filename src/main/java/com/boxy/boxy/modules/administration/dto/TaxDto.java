@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TaxDto {
-    private String id;
+    private Long id;
     private String name;
     private BigDecimal rate;
     private boolean isDefault;

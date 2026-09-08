@@ -12,8 +12,8 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 public class InvoiceItemDto {
-    private String id;
-    private String productId;
+    private Long id;
+    private Long productId;
     private String sku;
     private String productName;
     private BigDecimal quantity;

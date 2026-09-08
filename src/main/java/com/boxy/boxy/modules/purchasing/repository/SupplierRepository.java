@@ -10,8 +10,8 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface SupplierRepository extends JpaRepository<Supplier, String> {
-    List<Supplier> findByCompanyIdAndDeletedAtIsNull(String companyId);
-    Page<Supplier> findByCompanyIdAndDeletedAtIsNull(String companyId, Pageable pageable);
-    Optional<Supplier> findByIdAndDeletedAtIsNull(String id);
+public interface SupplierRepository extends JpaRepository<Supplier, Long> {
+    List<Supplier> findByCompanyIdAndDeletedAtIsNull(Long companyId);
+    Page<Supplier> findByCompanyIdAndDeletedAtIsNull(Long companyId, Pageable pageable);
+    Optional<Supplier> findByIdAndDeletedAtIsNull(Long id);
 }

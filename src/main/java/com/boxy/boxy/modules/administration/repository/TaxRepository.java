@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface TaxRepository extends JpaRepository<Tax, String> {
-    List<Tax> findByCompanyIdAndDeletedAtIsNull(String companyId);
-    Optional<Tax> findByCompanyIdAndIsDefaultTrueAndDeletedAtIsNull(String companyId);
+public interface TaxRepository extends JpaRepository<Tax, Long> {
+    List<Tax> findByCompanyIdAndDeletedAtIsNull(Long companyId);
+    Optional<Tax> findByCompanyIdAndIsDefaultTrueAndDeletedAtIsNull(Long companyId);
 }

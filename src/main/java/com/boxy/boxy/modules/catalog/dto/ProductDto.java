@@ -14,14 +14,14 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ProductDto {
-    private String id;
-    private String categoryId;
+    private Long id;
+    private Long categoryId;
     private String categoryName;
-    private String brandId;
+    private Long brandId;
     private String brandName;
-    private String unitId;
+    private Long unitId;
     private String unitCode;
-    private String taxId;
+    private Long taxId;
     private BigDecimal taxRate;
     private String sku;
     private String barcode;

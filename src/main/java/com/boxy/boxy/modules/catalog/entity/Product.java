@@ -21,8 +21,8 @@ import java.util.List;
 @AllArgsConstructor
 public class Product {
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id", nullable = false)
@@ -91,11 +91,11 @@ public class Product {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    @Column(name = "created_by", length = 36)
-    private String createdBy;
+    @Column(name = "created_by")
+    private Long createdBy;
 
-    @Column(name = "updated_by", length = 36)
-    private String updatedBy;
+    @Column(name = "updated_by")
+    private Long updatedBy;
 
     @Column(name = "deleted_at")
     private Instant deletedAt;

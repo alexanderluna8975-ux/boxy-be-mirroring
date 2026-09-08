@@ -13,10 +13,10 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CashierSessionDto {
-    private String id;
-    private String branchId;
+    private Long id;
+    private Long branchId;
     private String branchName;
-    private String userId;
+    private Long userId;
     private String userName;
     private Instant openedAt;
     private Instant closedAt;

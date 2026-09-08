@@ -13,7 +13,7 @@ import java.time.Instant;
 @AllArgsConstructor
 public class AuditLogDto {
     private Long id;
-    private String userId;
+    private Long userId;
     private String action;
     private String resourceType;
     private String resourceId;

@@ -12,10 +12,10 @@ import java.util.List;
 @Data
 public class CreatePurchaseOrderRequest {
     @NotBlank(message = "Branch ID is required")
-    private String branchId;
+    private Long branchId;
 
     @NotBlank(message = "Supplier ID is required")
-    private String supplierId;
+    private Long supplierId;
 
     @NotNull(message = "Issue date is required")
     private LocalDate issueDate;
@@ -29,7 +29,7 @@ public class CreatePurchaseOrderRequest {
     @Data
     public static class PurchaseOrderItemRequest {
         @NotBlank(message = "Product ID is required")
-        private String productId;
+        private Long productId;
 
         @NotNull(message = "Quantity is required")
         private BigDecimal quantity;

@@ -40,7 +40,7 @@ public class PurchasingController {
     @GetMapping("/orders")
     @Operation(summary = "List purchase orders with pagination")
     public ResponseEntity<ApiResponse<List<PurchaseOrderDto>>> getPurchaseOrders(
-            @RequestParam(required = false) String branchId,
+            @RequestParam(required = false) Long branchId,
             @PageableDefault(size = 20) Pageable pageable) {
         Page<PurchaseOrderDto> page = purchasingService.getPurchaseOrders(branchId, pageable);
         return ResponseEntity.ok(ApiResponse.paged(page.getContent(), com.boxy.boxy.core.response.PageMeta.from(page)));

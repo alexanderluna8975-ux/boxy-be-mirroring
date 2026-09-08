@@ -47,7 +47,7 @@ public class PurchasingService {
 
     @Transactional(readOnly = true)
     public List<SupplierDto> getAllSuppliers() {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return supplierRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(this::toSupplierDto)
                 .toList();
@@ -55,7 +55,7 @@ public class PurchasingService {
 
     @Transactional
     public SupplierDto createSupplier(CreateSupplierRequest request) {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
@@ -75,17 +75,17 @@ public class PurchasingService {
     }
 
     @Transactional(readOnly = true)
-    public Page<PurchaseOrderDto> getPurchaseOrders(String branchId, Pageable pageable) {
+    public Page<PurchaseOrderDto> getPurchaseOrders(Long branchId, Pageable pageable) {
         if (branchId != null) {
             return purchaseOrderRepository.findByBranchIdOrderByCreatedAtDesc(branchId, pageable).map(this::toPoDto);
         }
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return purchaseOrderRepository.findByCompanyIdOrderByCreatedAtDesc(companyId, pageable).map(this::toPoDto);
     }
 
     @Transactional
     public PurchaseOrderDto createPurchaseOrder(CreatePurchaseOrderRequest request) {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
@@ -193,7 +193,7 @@ public class PurchasingService {
                     .unitCost(itemReq.getUnitCost())
                     .balanceAfter(stock.getQuantityAvailable())
                     .referenceType("PURCHASE_ORDER")
-                    .referenceId(po.getId())
+                    .referenceId(String.valueOf(po.getId()))
                     .notes("Goods received for PO " + po.getOrderNumber())
                     .createdBy(user)
                     .build();

@@ -14,16 +14,16 @@ import java.util.List;
 @Builder
 @AllArgsConstructor
 public class UserPrincipal implements UserDetails {
-    private final String id;
-    private final String companyId;
+    private final Long id;
+    private final Long companyId;
     private final String username;
     private final String email;
     private final String password;
     private final String fullName;
-    private final String activeBranchId;
+    private final Long activeBranchId;
     private final Collection<? extends GrantedAuthority> authorities;
 
-    public static UserPrincipal create(String id, String companyId, String username, String email, String password, String fullName, String activeBranchId, List<String> rolesAndPermissions) {
+    public static UserPrincipal create(Long id, Long companyId, String username, String email, String password, String fullName, Long activeBranchId, List<String> rolesAndPermissions) {
         List<SimpleGrantedAuthority> authorities = rolesAndPermissions.stream()
                 .map(SimpleGrantedAuthority::new)
                 .toList();

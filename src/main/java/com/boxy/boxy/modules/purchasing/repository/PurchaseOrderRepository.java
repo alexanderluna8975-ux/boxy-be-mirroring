@@ -9,8 +9,8 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, String> {
-    Page<PurchaseOrder> findByBranchIdOrderByCreatedAtDesc(String branchId, Pageable pageable);
-    Page<PurchaseOrder> findByCompanyIdOrderByCreatedAtDesc(String companyId, Pageable pageable);
+public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, Long> {
+    Page<PurchaseOrder> findByBranchIdOrderByCreatedAtDesc(Long branchId, Pageable pageable);
+    Page<PurchaseOrder> findByCompanyIdOrderByCreatedAtDesc(Long companyId, Pageable pageable);
     Optional<PurchaseOrder> findByOrderNumber(String orderNumber);
 }

@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface BrandRepository extends JpaRepository<Brand, String> {
-    List<Brand> findByCompanyIdAndDeletedAtIsNull(String companyId);
-    Optional<Brand> findByIdAndDeletedAtIsNull(String id);
+public interface BrandRepository extends JpaRepository<Brand, Long> {
+    List<Brand> findByCompanyIdAndDeletedAtIsNull(Long companyId);
+    Optional<Brand> findByIdAndDeletedAtIsNull(Long id);
 }

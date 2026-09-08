@@ -49,7 +49,7 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public List<CustomerDto> getAllCustomers() {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return customerRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(this::toCustomerDto)
                 .toList();
@@ -57,7 +57,7 @@ public class SalesService {
 
     @Transactional
     public CustomerDto createCustomer(CreateCustomerRequest request) {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
@@ -82,15 +82,15 @@ public class SalesService {
     }
 
     @Transactional(readOnly = true)
-    public Optional<CashierSessionDto> getActiveSession(String branchId) {
-        String userId = SecurityUtils.getCurrentUserId();
+    public Optional<CashierSessionDto> getActiveSession(Long branchId) {
+        Long userId = SecurityUtils.getCurrentUserId();
         return cashierSessionRepository.findByUserIdAndBranchIdAndStatus(userId, branchId, "OPEN")
                 .map(this::toSessionDto);
     }
 
     @Transactional
     public CashierSessionDto openSession(OpenSessionRequest request) {
-        String userId = SecurityUtils.getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         if (cashierSessionRepository.findByUserIdAndBranchIdAndStatus(userId, request.getBranchId(), "OPEN").isPresent()) {
             throw new BusinessException("SESSION_ALREADY_OPEN", "You already have an active shift session in this branch.");
         }
@@ -114,7 +114,7 @@ public class SalesService {
     }
 
     @Transactional
-    public CashierSessionDto closeSession(String sessionId, CloseSessionRequest request) {
+    public CashierSessionDto closeSession(Long sessionId, CloseSessionRequest request) {
         CashierSession session = cashierSessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("CashierSession", sessionId));
 
@@ -143,7 +143,7 @@ public class SalesService {
             }
         }
 
-        String userId = SecurityUtils.getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         CashierSession session = cashierSessionRepository.findByUserIdAndBranchIdAndStatus(userId, request.getBranchId(), "OPEN")
                 .orElseThrow(() -> new BusinessException("NO_ACTIVE_SESSION", "No active cashier session found for this user in this branch. Please open a shift first."));
 
@@ -270,11 +270,11 @@ public class SalesService {
     }
 
     @Transactional(readOnly = true)
-    public Page<InvoiceDto> getInvoices(String branchId, Pageable pageable) {
+    public Page<InvoiceDto> getInvoices(Long branchId, Pageable pageable) {
         if (branchId != null) {
             return invoiceRepository.findByBranchIdOrderByCreatedAtDesc(branchId, pageable).map(this::toInvoiceDto);
         }
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return invoiceRepository.findByCompanyIdOrderByCreatedAtDesc(companyId, pageable).map(this::toInvoiceDto);
     }
 

@@ -12,10 +12,10 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface ProductRepository extends JpaRepository<Product, String> {
-    Optional<Product> findByIdAndDeletedAtIsNull(String id);
-    Optional<Product> findByCompanyIdAndSkuAndDeletedAtIsNull(String companyId, String sku);
-    Optional<Product> findByCompanyIdAndBarcodeAndDeletedAtIsNull(String companyId, String barcode);
+public interface ProductRepository extends JpaRepository<Product, Long> {
+    Optional<Product> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Product> findByCompanyIdAndSkuAndDeletedAtIsNull(Long companyId, String sku);
+    Optional<Product> findByCompanyIdAndBarcodeAndDeletedAtIsNull(Long companyId, String barcode);
 
     @Query("SELECT p FROM Product p WHERE p.company.id = :companyId AND p.deletedAt IS NULL AND " +
            "(:search IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')) OR p.barcode LIKE CONCAT('%', :search, '%')) AND " +
@@ -23,12 +23,12 @@ public interface ProductRepository extends JpaRepository<Product, String> {
            "(:brandId IS NULL OR p.brand.id = :brandId) AND " +
            "(:isActive IS NULL OR p.isActive = :isActive)")
     Page<Product> findAllFiltered(
-            @Param("companyId") String companyId,
+            @Param("companyId") Long companyId,
             @Param("search") String search,
-            @Param("categoryId") String categoryId,
-            @Param("brandId") String brandId,
+            @Param("categoryId") Long categoryId,
+            @Param("brandId") Long brandId,
             @Param("isActive") Boolean isActive,
             Pageable pageable);
 
-    List<Product> findTop10ByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDesc(String companyId);
+    List<Product> findTop10ByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long companyId);
 }

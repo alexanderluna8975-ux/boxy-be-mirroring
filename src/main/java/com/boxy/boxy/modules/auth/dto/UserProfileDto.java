@@ -12,14 +12,14 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserProfileDto {
-    private String id;
+    private Long id;
     private String username;
     private String email;
     private String firstName;
     private String lastName;
     private String avatarUrl;
     private String status;
-    private String activeBranchId;
+    private Long activeBranchId;
     private List<BranchAssignmentDto> branches;
     private List<String> permissions;
 }

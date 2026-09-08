@@ -9,7 +9,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public interface SalesOrderRepository extends JpaRepository<SalesOrder, String> {
-    Page<SalesOrder> findByBranchIdOrderByCreatedAtDesc(String branchId, Pageable pageable);
+public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
+    Page<SalesOrder> findByBranchIdOrderByCreatedAtDesc(Long branchId, Pageable pageable);
     Optional<SalesOrder> findByOrderNumber(String orderNumber);
 }

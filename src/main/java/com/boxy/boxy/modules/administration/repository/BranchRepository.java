@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface BranchRepository extends JpaRepository<Branch, String> {
-    List<Branch> findByCompanyIdAndDeletedAtIsNull(String companyId);
-    Optional<Branch> findByIdAndDeletedAtIsNull(String id);
-    Optional<Branch> findByCompanyIdAndCodeAndDeletedAtIsNull(String companyId, String code);
+public interface BranchRepository extends JpaRepository<Branch, Long> {
+    List<Branch> findByCompanyIdAndDeletedAtIsNull(Long companyId);
+    Optional<Branch> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Branch> findByCompanyIdAndCodeAndDeletedAtIsNull(Long companyId, String code);
 }

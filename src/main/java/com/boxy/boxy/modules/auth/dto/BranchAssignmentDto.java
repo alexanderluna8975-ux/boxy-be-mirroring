@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class BranchAssignmentDto {
-    private String branchId;
+    private Long branchId;
     private String branchCode;
     private String branchName;
     private String roleCode;

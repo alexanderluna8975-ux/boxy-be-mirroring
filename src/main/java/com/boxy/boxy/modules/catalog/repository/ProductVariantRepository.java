@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface ProductVariantRepository extends JpaRepository<ProductVariant, String> {
-    List<ProductVariant> findByProductIdAndDeletedAtIsNull(String productId);
+public interface ProductVariantRepository extends JpaRepository<ProductVariant, Long> {
+    List<ProductVariant> findByProductIdAndDeletedAtIsNull(Long productId);
     Optional<ProductVariant> findBySkuAndDeletedAtIsNull(String sku);
 }

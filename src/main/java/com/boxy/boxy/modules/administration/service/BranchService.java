@@ -28,14 +28,14 @@ public class BranchService {
 
     @Transactional(readOnly = true)
     public List<BranchDto> getAllBranches() {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return branchRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(this::toDto)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public BranchDto getBranchById(String id) {
+    public BranchDto getBranchById(Long id) {
         Branch branch = branchRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Branch", id));
         return toDto(branch);
@@ -43,7 +43,7 @@ public class BranchService {
 
     @Transactional
     public BranchDto createBranch(CreateBranchRequest request) {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 

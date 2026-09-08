@@ -15,8 +15,8 @@ import java.time.Instant;
 @AllArgsConstructor
 public class Permission {
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     @Column(nullable = false, length = 50)
     private String module;

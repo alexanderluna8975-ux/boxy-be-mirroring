@@ -7,7 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 @Repository
-public interface UserBranchRoleRepository extends JpaRepository<UserBranchRole, String> {
-    List<UserBranchRole> findByUserId(String userId);
-    List<UserBranchRole> findByBranchId(String branchId);
+public interface UserBranchRoleRepository extends JpaRepository<UserBranchRole, Long> {
+    List<UserBranchRole> findByUserId(Long userId);
+    List<UserBranchRole> findByBranchId(Long branchId);
 }

@@ -18,11 +18,11 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class StockTransferDto {
-    private String id;
+    private Long id;
     private String transferNumber;
-    private String sourceWarehouseId;
+    private Long sourceWarehouseId;
     private String sourceWarehouseName;
-    private String destinationWarehouseId;
+    private Long destinationWarehouseId;
     private String destinationWarehouseName;
     private String status;
     private String notes;

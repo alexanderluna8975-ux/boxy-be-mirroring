@@ -13,7 +13,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SupplierDto {
-    private String id;
+    private Long id;
     private String taxId;
     private String name;
     private String contactName;

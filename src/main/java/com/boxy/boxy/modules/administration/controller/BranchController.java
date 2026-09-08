@@ -31,12 +31,12 @@ public class BranchController {
 
     @GetMapping("/{id}")
     @Operation(summary = "Get branch details by ID")
-    public ResponseEntity<ApiResponse<BranchDto>> getBranchById(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<BranchDto>> getBranchById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(branchService.getBranchById(id)));
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('administration:settings:manage') or hasAuthority('administration:manage') or hasAuthority('ROLE_OWNER') or hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('administration:settings:manage') or hasAuthority('administration:manage') or hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_OWNER') or hasAuthority('ROLE_ADMIN')")
     @Operation(summary = "Create a new branch")
     public ResponseEntity<ApiResponse<BranchDto>> createBranch(@Valid @RequestBody CreateBranchRequest request) {
         BranchDto created = branchService.createBranch(request);

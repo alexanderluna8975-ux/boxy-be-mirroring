@@ -26,7 +26,7 @@ public class DashboardSummaryDto {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class RecentSaleDto {
-        private String invoiceId;
+        private Long invoiceId;
         private String invoiceNumber;
         private String customerName;
         private BigDecimal totalAmount;
@@ -38,7 +38,7 @@ public class DashboardSummaryDto {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class LowStockAlertDto {
-        private String productId;
+        private Long productId;
         private String productSku;
         private String productName;
         private BigDecimal availableStock;

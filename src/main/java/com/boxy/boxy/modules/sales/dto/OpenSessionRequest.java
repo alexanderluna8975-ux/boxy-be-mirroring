@@ -10,7 +10,7 @@ import java.math.BigDecimal;
 @Data
 public class OpenSessionRequest {
     @NotBlank(message = "Branch ID is required")
-    private String branchId;
+    private Long branchId;
 
     @NotNull(message = "Initial cash amount is required")
     @DecimalMin(value = "0.0", message = "Initial cash must be >= 0")

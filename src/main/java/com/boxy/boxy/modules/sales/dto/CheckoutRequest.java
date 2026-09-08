@@ -12,13 +12,13 @@ import java.util.List;
 @Data
 public class CheckoutRequest {
     @NotBlank(message = "Branch ID is required")
-    private String branchId;
+    private Long branchId;
 
     @NotBlank(message = "Warehouse ID is required")
-    private String warehouseId;
+    private Long warehouseId;
 
     @NotBlank(message = "Customer ID is required")
-    private String customerId;
+    private Long customerId;
 
     @NotBlank(message = "Document type is required (e.g. TICKET, INVOICE)")
     private String documentType;
@@ -34,7 +34,7 @@ public class CheckoutRequest {
     @Data
     public static class CheckoutItemRequest {
         @NotBlank(message = "Product ID is required")
-        private String productId;
+        private Long productId;
 
         @NotNull(message = "Quantity is required")
         @DecimalMin(value = "0.0001", message = "Quantity must be > 0")

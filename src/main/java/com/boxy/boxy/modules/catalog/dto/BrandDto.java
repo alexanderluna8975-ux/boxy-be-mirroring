@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class BrandDto {
-    private String id;
+    private Long id;
     private String name;
     private String description;
     private boolean isActive;

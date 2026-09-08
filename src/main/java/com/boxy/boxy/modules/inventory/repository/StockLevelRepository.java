@@ -12,19 +12,19 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface StockLevelRepository extends JpaRepository<StockLevel, String> {
-    Optional<StockLevel> findByWarehouseIdAndProductIdAndVariantIdIsNull(String warehouseId, String productId);
-    Optional<StockLevel> findByWarehouseIdAndProductIdAndVariantId(String warehouseId, String productId, String variantId);
-    List<StockLevel> findByWarehouseId(String warehouseId);
+public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
+    Optional<StockLevel> findByWarehouseIdAndProductIdAndVariantIdIsNull(Long warehouseId, Long productId);
+    Optional<StockLevel> findByWarehouseIdAndProductIdAndVariantId(Long warehouseId, Long productId, Long variantId);
+    List<StockLevel> findByWarehouseId(Long warehouseId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM StockLevel s WHERE s.warehouse.id = :warehouseId AND s.product.id = :productId AND s.variant.id IS NULL")
-    Optional<StockLevel> findForUpdate(@Param("warehouseId") String warehouseId, @Param("productId") String productId);
+    Optional<StockLevel> findForUpdate(@Param("warehouseId") Long warehouseId, @Param("productId") Long productId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT s FROM StockLevel s WHERE s.warehouse.id = :warehouseId AND s.product.id = :productId AND s.variant.id = :variantId")
-    Optional<StockLevel> findVariantForUpdate(@Param("warehouseId") String warehouseId, @Param("productId") String productId, @Param("variantId") String variantId);
+    Optional<StockLevel> findVariantForUpdate(@Param("warehouseId") Long warehouseId, @Param("productId") Long productId, @Param("variantId") Long variantId);
 
     @Query("SELECT s FROM StockLevel s WHERE s.warehouse.branch.id = :branchId AND s.quantityAvailable <= s.product.minStockAlert")
-    List<StockLevel> findLowStockByBranch(@Param("branchId") String branchId);
+    List<StockLevel> findLowStockByBranch(@Param("branchId") Long branchId);
 }

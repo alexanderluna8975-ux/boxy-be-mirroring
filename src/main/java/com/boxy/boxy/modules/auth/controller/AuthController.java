@@ -39,7 +39,7 @@ public class AuthController {
     @GetMapping("/me")
     @Operation(summary = "Get currently authenticated user profile")
     public ResponseEntity<ApiResponse<UserProfileDto>> getCurrentUser() {
-        String userId = SecurityUtils.getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         UserProfileDto profile = authService.getProfile(userId);
         return ResponseEntity.ok(ApiResponse.ok(profile));
     }

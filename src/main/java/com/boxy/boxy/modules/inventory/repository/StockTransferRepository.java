@@ -9,7 +9,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Optional;
 
 @Repository
-public interface StockTransferRepository extends JpaRepository<StockTransfer, String> {
-    Page<StockTransfer> findByCompanyIdOrderByCreatedAtDesc(String companyId, Pageable pageable);
+public interface StockTransferRepository extends JpaRepository<StockTransfer, Long> {
+    Page<StockTransfer> findByCompanyIdOrderByCreatedAtDesc(Long companyId, Pageable pageable);
     Optional<StockTransfer> findByTransferNumber(String transferNumber);
 }

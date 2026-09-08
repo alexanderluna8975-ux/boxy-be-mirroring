@@ -21,8 +21,8 @@ import java.util.List;
 @AllArgsConstructor
 public class StockTransfer {
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    private String id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id", nullable = false)
@@ -50,11 +50,11 @@ public class StockTransfer {
     @JoinColumn(name = "requested_by", nullable = false)
     private User requestedBy;
 
-    @Column(name = "dispatched_by", length = 36)
-    private String dispatchedBy;
+    @Column(name = "dispatched_by")
+    private Long dispatchedBy;
 
-    @Column(name = "received_by", length = 36)
-    private String receivedBy;
+    @Column(name = "received_by")
+    private Long receivedBy;
 
     @Column(name = "dispatched_at")
     private Instant dispatchedAt;

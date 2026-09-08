@@ -22,7 +22,7 @@ public class DashboardController {
 
     @GetMapping("/summary")
     @Operation(summary = "Get high-level dashboard business KPIs and summary")
-    public ResponseEntity<ApiResponse<DashboardSummaryDto>> getSummary(@RequestParam(required = false) String branchId) {
+    public ResponseEntity<ApiResponse<DashboardSummaryDto>> getSummary(@RequestParam(required = false) Long branchId) {
         return ResponseEntity.ok(ApiResponse.ok(dashboardService.getSummary(branchId)));
     }
 }

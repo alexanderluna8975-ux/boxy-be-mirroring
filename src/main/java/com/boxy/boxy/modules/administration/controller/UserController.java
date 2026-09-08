@@ -24,21 +24,21 @@ public class UserController {
     private final UserService userService;
 
     @GetMapping
-    @PreAuthorize("hasAuthority('administration:manage') or hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('administration:manage') or hasAuthority('administration:users:manage') or hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_ADMIN')")
     @Operation(summary = "List all company users")
     public ResponseEntity<ApiResponse<List<UserDto>>> getAllUsers() {
         return ResponseEntity.ok(ApiResponse.ok(userService.getAllUsers()));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('administration:manage') or hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('administration:manage') or hasAuthority('administration:users:manage') or hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_ADMIN')")
     @Operation(summary = "Get user details by ID")
-    public ResponseEntity<ApiResponse<UserDto>> getUserById(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<UserDto>> getUserById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(userService.getUserById(id)));
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('administration:manage') or hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('administration:manage') or hasAuthority('administration:users:manage') or hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_ADMIN')")
     @Operation(summary = "Create a new user")
     public ResponseEntity<ApiResponse<UserDto>> createUser(@Valid @RequestBody CreateUserRequest request) {
         UserDto created = userService.createUser(request);

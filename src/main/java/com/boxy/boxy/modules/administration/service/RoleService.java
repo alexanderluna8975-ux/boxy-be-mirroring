@@ -23,14 +23,14 @@ public class RoleService {
 
     @Transactional(readOnly = true)
     public List<RoleDto> getAllRoles() {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return roleRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(this::toDto)
                 .toList();
     }
 
     @Transactional(readOnly = true)
-    public RoleDto getRoleById(String id) {
+    public RoleDto getRoleById(Long id) {
         Role role = roleRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", id));
         return toDto(role);

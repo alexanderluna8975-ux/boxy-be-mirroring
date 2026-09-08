@@ -17,15 +17,15 @@ public final class SecurityUtils {
         return Optional.empty();
     }
 
-    public static String getCurrentUserId() {
-        return getCurrentUser().map(UserPrincipal::getId).orElse("SYSTEM");
+    public static Long getCurrentUserId() {
+        return getCurrentUser().map(UserPrincipal::getId).orElse(1L);
     }
 
-    public static String getCurrentCompanyId() {
-        return getCurrentUser().map(UserPrincipal::getCompanyId).orElse("c0000000-0000-0000-0000-000000000001");
+    public static Long getCurrentCompanyId() {
+        return getCurrentUser().map(UserPrincipal::getCompanyId).orElse(1L);
     }
 
-    public static String getCurrentBranchId() {
-        return getCurrentUser().map(UserPrincipal::getActiveBranchId).orElse(null);
+    public static Long getCurrentBranchId() {
+        return getCurrentUser().map(UserPrincipal::getActiveBranchId).orElse(1L);
     }
 }

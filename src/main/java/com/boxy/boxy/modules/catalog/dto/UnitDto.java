@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UnitDto {
-    private String id;
+    private Long id;
     private String code;
     private String name;
     private String symbol;

@@ -37,14 +37,14 @@ public class ProductService {
     private final CompanyRepository companyRepository;
 
     @Transactional(readOnly = true)
-    public Page<ProductDto> getProducts(String search, String categoryId, String brandId, Boolean isActive, Pageable pageable) {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+    public Page<ProductDto> getProducts(String search, Long categoryId, Long brandId, Boolean isActive, Pageable pageable) {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return productRepository.findAllFiltered(companyId, search, categoryId, brandId, isActive, pageable)
                 .map(this::toDto);
     }
 
     @Transactional(readOnly = true)
-    public ProductDto getProductById(String id) {
+    public ProductDto getProductById(Long id) {
         Product product = productRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product", id));
         return toDto(product);
@@ -52,7 +52,7 @@ public class ProductService {
 
     @Transactional
     public ProductDto createProduct(CreateProductRequest request) {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
@@ -103,7 +103,7 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public List<CategoryDto> getCategories() {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return categoryRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(c -> CategoryDto.builder()
                         .id(c.getId())
@@ -118,7 +118,7 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public List<BrandDto> getBrands() {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return brandRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(b -> BrandDto.builder()
                         .id(b.getId())
@@ -131,7 +131,7 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public List<UnitDto> getUnits() {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return unitOfMeasureRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(u -> UnitDto.builder()
                         .id(u.getId())

@@ -14,7 +14,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CustomerDto {
-    private String id;
+    private Long id;
     private String documentType;
     private String documentNumber;
     private String name;

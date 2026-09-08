@@ -26,8 +26,8 @@ public class DashboardService {
     private final StockLevelRepository stockLevelRepository;
 
     @Transactional(readOnly = true)
-    public DashboardSummaryDto getSummary(String branchId) {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+    public DashboardSummaryDto getSummary(Long branchId) {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
 
         long productCount = productRepository.count();
         long customerCount = customerRepository.count();

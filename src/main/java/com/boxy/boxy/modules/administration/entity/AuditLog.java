@@ -19,10 +19,10 @@ public class AuditLog {
     private Long id;
 
     @Column(name = "company_id", nullable = false, length = 36)
-    private String companyId;
+    private Long companyId;
 
     @Column(name = "user_id", length = 36)
-    private String userId;
+    private Long userId;
 
     @Column(nullable = false, length = 50)
     private String action;

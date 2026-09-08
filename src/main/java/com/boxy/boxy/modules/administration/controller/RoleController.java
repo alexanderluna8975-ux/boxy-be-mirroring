@@ -31,7 +31,7 @@ public class RoleController {
 
     @GetMapping("/roles/{id}")
     @Operation(summary = "Get role details by ID")
-    public ResponseEntity<ApiResponse<RoleDto>> getRoleById(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<RoleDto>> getRoleById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(roleService.getRoleById(id)));
     }
 

@@ -23,7 +23,7 @@ public class TaxService {
 
     @Transactional(readOnly = true)
     public List<TaxDto> getAllTaxes() {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return taxRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(t -> TaxDto.builder()
                         .id(t.getId())
@@ -37,7 +37,7 @@ public class TaxService {
 
     @Transactional(readOnly = true)
     public Page<AuditLogDto> getAuditLogs(Pageable pageable) {
-        String companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.getCurrentCompanyId();
         return auditLogRepository.findByCompanyIdOrderByCreatedAtDesc(companyId, pageable)
                 .map(log -> AuditLogDto.builder()
                         .id(log.getId())

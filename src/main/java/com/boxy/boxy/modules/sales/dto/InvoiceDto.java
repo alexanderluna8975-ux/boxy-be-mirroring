@@ -14,12 +14,12 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class InvoiceDto {
-    private String id;
-    private String branchId;
+    private Long id;
+    private Long branchId;
     private String branchName;
-    private String warehouseId;
+    private Long warehouseId;
     private String warehouseName;
-    private String customerId;
+    private Long customerId;
     private String customerName;
     private String documentType;
     private String series;
