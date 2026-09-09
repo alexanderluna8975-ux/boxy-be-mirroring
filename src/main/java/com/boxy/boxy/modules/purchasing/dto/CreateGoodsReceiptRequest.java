@@ -1,7 +1,7 @@
 package com.boxy.boxy.modules.purchasing.dto;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -9,26 +9,22 @@ import java.util.List;
 
 @Data
 public class CreateGoodsReceiptRequest {
-    @NotBlank(message = "Purchase Order ID is required")
+    @NotNull(message = "Purchase Order ID is required")
     private Long purchaseOrderId;
 
-    @NotBlank(message = "Destination warehouse ID is required")
     private Long warehouseId;
-
     private String supplierInvoiceNumber;
     private String notes;
 
-    @NotEmpty(message = "At least one item is required")
+    @JsonAlias({"lines", "items"})
     private List<GoodsReceiptItemRequest> items;
 
     @Data
     public static class GoodsReceiptItemRequest {
-        @NotBlank(message = "Product ID is required")
+        @NotNull(message = "Product ID is required")
         private Long productId;
 
-        @NotBlank(message = "Purchase order item ID is required")
-        private String purchaseOrderItemId;
-
+        private Long purchaseOrderItemId;
         private BigDecimal quantityReceived;
         private BigDecimal unitCost;
     }

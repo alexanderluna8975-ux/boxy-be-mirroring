@@ -12,4 +12,5 @@ import java.util.Optional;
 public interface GoodsReceiptRepository extends JpaRepository<GoodsReceipt, Long> {
     Page<GoodsReceipt> findByWarehouseBranchIdOrderByCreatedAtDesc(Long branchId, Pageable pageable);
     Optional<GoodsReceipt> findByReceiptNumber(String receiptNumber);
+    Page<GoodsReceipt> findAllByOrderByCreatedAtDesc(Pageable pageable);
 }

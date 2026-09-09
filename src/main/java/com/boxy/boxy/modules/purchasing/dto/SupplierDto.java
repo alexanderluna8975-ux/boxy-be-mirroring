@@ -1,11 +1,11 @@
 package com.boxy.boxy.modules.purchasing.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 @Data
@@ -22,5 +22,9 @@ public class SupplierDto {
     private String address;
     private int paymentTermsDays;
     private boolean isActive;
+    private String status;
+    private int orderCount;
+    private Instant lastOrderAt;
+    private BigDecimal totalPurchased;
     private Instant createdAt;
 }

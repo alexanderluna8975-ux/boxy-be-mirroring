@@ -51,6 +51,13 @@ public class InventoryService {
     }
 
     @Transactional(readOnly = true)
+    public List<StockLevelDto> getStockLevelsByProduct(Long productId) {
+        return stockLevelRepository.findByProductId(productId).stream()
+                .map(this::toStockLevelDto)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public Page<StockMovementDto> getMovementsByWarehouse(Long warehouseId, Pageable pageable) {
         return stockMovementRepository.findByWarehouseIdOrderByCreatedAtDesc(warehouseId, pageable)
                 .map(this::toMovementDto);
@@ -213,42 +220,108 @@ public class InventoryService {
     }
 
     private StockLevelDto toStockLevelDto(StockLevel s) {
-        boolean isLow = s.getQuantityAvailable().compareTo(s.getProduct().getMinStockAlert()) <= 0;
+        BigDecimal available = s.getQuantityAvailable() != null ? s.getQuantityAvailable() : BigDecimal.ZERO;
+        BigDecimal reserved = s.getQuantityReserved() != null ? s.getQuantityReserved() : BigDecimal.ZERO;
+        BigDecimal totalQty = available.add(reserved);
+        boolean isLow = available.compareTo(s.getProduct().getMinStockAlert()) <= 0 && available.compareTo(BigDecimal.ZERO) > 0;
+        String status = available.compareTo(BigDecimal.ZERO) <= 0 ? "out-of-stock" : (isLow ? "low-stock" : "in-stock");
+
         return StockLevelDto.builder()
                 .id(s.getId())
                 .warehouseId(s.getWarehouse().getId())
                 .warehouseName(s.getWarehouse().getName())
+                .warehouseCode(s.getWarehouse().getCode())
                 .branchId(s.getWarehouse().getBranch().getId())
                 .branchName(s.getWarehouse().getBranch().getName())
                 .productId(s.getProduct().getId())
                 .productSku(s.getProduct().getSku())
+                .sku(s.getProduct().getSku())
                 .productName(s.getProduct().getName())
-                .quantityAvailable(s.getQuantityAvailable())
-                .quantityReserved(s.getQuantityReserved())
+                .quantityAvailable(available)
+                .quantityReserved(reserved)
                 .quantityInTransit(s.getQuantityInTransit())
+                .quantity(totalQty)
+                .reservedQuantity(reserved)
+                .availableQuantity(available)
                 .minStockAlert(s.getProduct().getMinStockAlert())
                 .isLowStock(isLow)
+                .status(status)
                 .updatedAt(s.getUpdatedAt())
                 .build();
     }
 
+    @Transactional(readOnly = true)
+    public Page<StockMovementDto> getAllMovements(Long warehouseId, Long productId, Pageable pageable) {
+        if (warehouseId != null) {
+            return getMovementsByWarehouse(warehouseId, pageable);
+        }
+        if (productId != null) {
+            return getMovementsByProduct(productId, pageable);
+        }
+        return stockMovementRepository.findAllByOrderByCreatedAtDesc(pageable).map(this::toMovementDto);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<StockTransferDto> getAllTransfers(Pageable pageable) {
+        return stockTransferRepository.findAll(pageable).map(this::toTransferDto);
+    }
+
+    @Transactional(readOnly = true)
+    public StockTransferDto getTransferById(Long id) {
+        StockTransfer t = stockTransferRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StockTransfer", id));
+        return toTransferDto(t);
+    }
+
+    @Transactional
+    public StockTransferDto approveTransfer(Long id) {
+        StockTransfer t = stockTransferRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StockTransfer", id));
+        t.setStatus("APPROVED");
+        return toTransferDto(stockTransferRepository.save(t));
+    }
+
+    @Transactional
+    public StockTransferDto rejectTransfer(Long id) {
+        StockTransfer t = stockTransferRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StockTransfer", id));
+        t.setStatus("REJECTED");
+        return toTransferDto(stockTransferRepository.save(t));
+    }
+
     private StockMovementDto toMovementDto(StockMovement m) {
+        String type = "adjustment";
+        if (m.getMovementType() != null) {
+            String mt = m.getMovementType().toUpperCase();
+            if (mt.contains("TRANSFER") && mt.contains("IN")) type = "transfer-in";
+            else if (mt.contains("TRANSFER") && mt.contains("OUT")) type = "transfer-out";
+            else if (mt.contains("SALE")) type = "sale";
+            else if (mt.contains("PURCHASE") || mt.contains("RECEIPT")) type = "purchase";
+            else if (mt.contains("ADJUST")) type = "adjustment";
+        }
+
         return StockMovementDto.builder()
                 .id(m.getId())
                 .warehouseId(m.getWarehouse().getId())
                 .warehouseName(m.getWarehouse().getName())
+                .warehouseCode(m.getWarehouse().getCode())
                 .productId(m.getProduct().getId())
                 .productSku(m.getProduct().getSku())
+                .sku(m.getProduct().getSku())
                 .productName(m.getProduct().getName())
                 .movementType(m.getMovementType())
+                .type(type)
                 .quantity(m.getQuantity())
                 .unitCost(m.getUnitCost())
                 .balanceAfter(m.getBalanceAfter())
                 .referenceType(m.getReferenceType())
                 .referenceId(m.getReferenceId())
+                .referenceFolio(m.getReferenceId() != null ? m.getReferenceId() : "REF-" + m.getId())
                 .notes(m.getNotes())
                 .createdByName(m.getCreatedBy() != null ? m.getCreatedBy().getFullName() : "SYSTEM")
+                .userId(m.getCreatedBy() != null ? String.valueOf(m.getCreatedBy().getId()) : "1")
                 .createdAt(m.getCreatedAt())
+                .occurredAt(m.getCreatedAt())
                 .build();
     }
 
@@ -258,25 +331,48 @@ public class InventoryService {
                         .id(i.getId())
                         .productId(i.getProduct().getId())
                         .productSku(i.getProduct().getSku())
+                        .sku(i.getProduct().getSku())
                         .productName(i.getProduct().getName())
                         .quantityRequested(i.getQuantityRequested())
                         .quantityReceived(i.getQuantityReceived())
+                        .quantity(i.getQuantityRequested())
                         .build())
                 .toList();
+
+        String status = "pending-approval";
+        if (t.getStatus() != null) {
+            String s = t.getStatus().toUpperCase();
+            if (s.contains("TRANSIT") || s.contains("DISPATCH") || s.contains("SHIP")) status = "shipped";
+            else if (s.contains("RECEIV")) status = "received";
+            else if (s.contains("APPROV")) status = "approved";
+            else if (s.contains("REJECT")) status = "rejected";
+            else if (s.contains("CANCEL")) status = "cancelled";
+        }
 
         return StockTransferDto.builder()
                 .id(t.getId())
                 .transferNumber(t.getTransferNumber())
+                .folio(t.getTransferNumber())
                 .sourceWarehouseId(t.getSourceWarehouse().getId())
+                .originWarehouseId(t.getSourceWarehouse().getId())
                 .sourceWarehouseName(t.getSourceWarehouse().getName())
+                .originWarehouseName(t.getSourceWarehouse().getName())
+                .sourceWarehouseCode(t.getSourceWarehouse().getCode())
+                .originWarehouseCode(t.getSourceWarehouse().getCode())
                 .destinationWarehouseId(t.getDestinationWarehouse().getId())
                 .destinationWarehouseName(t.getDestinationWarehouse().getName())
-                .status(t.getStatus())
+                .destinationWarehouseCode(t.getDestinationWarehouse().getCode())
+                .status(status)
                 .notes(t.getNotes())
-                .requestedByName(t.getRequestedBy().getFullName())
+                .requestedByName(t.getRequestedBy() != null ? t.getRequestedBy().getFullName() : "Admin")
+                .requestedBy(t.getRequestedBy() != null ? t.getRequestedBy().getFullName() : "Admin")
+                .requestedAt(t.getCreatedAt())
                 .dispatchedAt(t.getDispatchedAt())
+                .shippedAt(t.getDispatchedAt())
                 .receivedAt(t.getReceivedAt())
                 .items(itemDtos)
+                .lines(itemDtos)
+                .lineCount(itemDtos.size())
                 .createdAt(t.getCreatedAt())
                 .build();
     }

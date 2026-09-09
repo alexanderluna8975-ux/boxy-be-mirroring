@@ -15,6 +15,7 @@ import java.util.Optional;
 public interface ProductRepository extends JpaRepository<Product, Long> {
     Optional<Product> findByIdAndDeletedAtIsNull(Long id);
     Optional<Product> findByCompanyIdAndSkuAndDeletedAtIsNull(Long companyId, String sku);
+    Optional<Product> findByCompanyIdAndSkuIgnoreCaseAndDeletedAtIsNull(Long companyId, String sku);
     Optional<Product> findByCompanyIdAndBarcodeAndDeletedAtIsNull(Long companyId, String barcode);
 
     @Query("SELECT p FROM Product p WHERE p.company.id = :companyId AND p.deletedAt IS NULL AND " +

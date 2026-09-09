@@ -11,4 +11,6 @@ import java.util.Optional;
 public interface CategoryRepository extends JpaRepository<Category, Long> {
     List<Category> findByCompanyIdAndDeletedAtIsNull(Long companyId);
     Optional<Category> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Category> findByCompanyIdAndNameIgnoreCaseAndDeletedAtIsNull(Long companyId, String name);
+    Optional<Category> findByCompanyIdAndCodeIgnoreCaseAndDeletedAtIsNull(Long companyId, String code);
 }

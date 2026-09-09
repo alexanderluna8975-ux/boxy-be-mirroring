@@ -16,10 +16,12 @@ public class InvoiceItemDto {
     private Long productId;
     private String sku;
     private String productName;
+    private String name;
     private BigDecimal quantity;
     private BigDecimal unitPrice;
     private BigDecimal unitCost;
     private BigDecimal discountAmount;
     private BigDecimal taxAmount;
     private BigDecimal totalAmount;
+    private BigDecimal lineTotal;
 }

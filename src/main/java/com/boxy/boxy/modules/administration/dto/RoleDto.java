@@ -15,7 +15,9 @@ public class RoleDto {
     private Long id;
     private String code;
     private String name;
+    private String label;
     private String description;
     private boolean isSystem;
+    private Long userCount;
     private List<PermissionDto> permissions;
 }

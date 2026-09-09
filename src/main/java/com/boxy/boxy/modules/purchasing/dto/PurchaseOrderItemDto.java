@@ -15,10 +15,15 @@ public class PurchaseOrderItemDto {
     private Long id;
     private Long productId;
     private String productSku;
+    private String sku;
     private String productName;
+    private String name;
     private BigDecimal quantityOrdered;
     private BigDecimal quantityReceived;
+    private BigDecimal quantity;
     private BigDecimal unitCost;
+    private BigDecimal unitPrice;
     private BigDecimal taxRate;
     private BigDecimal totalCost;
+    private BigDecimal lineTotal;
 }

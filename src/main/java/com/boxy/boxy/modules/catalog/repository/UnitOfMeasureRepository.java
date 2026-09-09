@@ -11,4 +11,7 @@ import java.util.Optional;
 public interface UnitOfMeasureRepository extends JpaRepository<UnitOfMeasure, Long> {
     List<UnitOfMeasure> findByCompanyIdAndDeletedAtIsNull(Long companyId);
     Optional<UnitOfMeasure> findByIdAndDeletedAtIsNull(Long id);
+    Optional<UnitOfMeasure> findByCompanyIdAndNameIgnoreCaseAndDeletedAtIsNull(Long companyId, String name);
+    Optional<UnitOfMeasure> findByCompanyIdAndCodeIgnoreCaseAndDeletedAtIsNull(Long companyId, String code);
+    Optional<UnitOfMeasure> findByCompanyIdAndSymbolIgnoreCaseAndDeletedAtIsNull(Long companyId, String symbol);
 }

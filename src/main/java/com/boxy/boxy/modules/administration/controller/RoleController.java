@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/administration")
@@ -33,6 +34,12 @@ public class RoleController {
     @Operation(summary = "Get role details by ID")
     public ResponseEntity<ApiResponse<RoleDto>> getRoleById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(roleService.getRoleById(id)));
+    }
+
+    @GetMapping("/roles/{id}/members")
+    @Operation(summary = "List users assigned to a specific role")
+    public ResponseEntity<ApiResponse<List<Map<String, String>>>> getRoleMembers(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(roleService.getRoleMembers(id)));
     }
 
     @GetMapping({"/permissions", "/permissions/matrix"})

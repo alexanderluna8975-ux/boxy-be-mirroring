@@ -10,4 +10,5 @@ import org.springframework.stereotype.Repository;
 public interface StockMovementRepository extends JpaRepository<StockMovement, Long> {
     Page<StockMovement> findByWarehouseIdOrderByCreatedAtDesc(Long warehouseId, Pageable pageable);
     Page<StockMovement> findByProductIdOrderByCreatedAtDesc(Long productId, Pageable pageable);
+    Page<StockMovement> findAllByOrderByCreatedAtDesc(Pageable pageable);
 }

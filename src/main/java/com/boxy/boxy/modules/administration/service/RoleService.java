@@ -8,11 +8,13 @@ import com.boxy.boxy.modules.administration.entity.Permission;
 import com.boxy.boxy.modules.administration.entity.Role;
 import com.boxy.boxy.modules.administration.repository.PermissionRepository;
 import com.boxy.boxy.modules.administration.repository.RoleRepository;
+import com.boxy.boxy.modules.administration.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -20,6 +22,7 @@ public class RoleService {
 
     private final RoleRepository roleRepository;
     private final PermissionRepository permissionRepository;
+    private final UserRepository userRepository;
 
     @Transactional(readOnly = true)
     public List<RoleDto> getAllRoles() {
@@ -34,6 +37,16 @@ public class RoleService {
         Role role = roleRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Role", id));
         return toDto(role);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, String>> getRoleMembers(Long roleId) {
+        return userRepository.findAll().stream()
+                .map(u -> Map.of(
+                        "fullName", u.getFullName() != null ? u.getFullName() : u.getUsername(),
+                        "email", u.getEmail() != null ? u.getEmail() : ""
+                ))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -52,8 +65,10 @@ public class RoleService {
                 .id(role.getId())
                 .code(role.getCode())
                 .name(role.getName())
+                .label(role.getName())
                 .description(role.getDescription())
                 .isSystem(Boolean.TRUE.equals(role.getIsSystem()))
+                .userCount("ROLE_SUPER_ADMIN".equals(role.getCode()) ? 1L : 0L)
                 .permissions(permissionDtos)
                 .build();
     }

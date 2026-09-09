@@ -99,4 +99,20 @@ public class Product {
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
+
+    public BigDecimal getSalePrice() {
+        return this.sellingPrice;
+    }
+
+    public void setSalePrice(BigDecimal salePrice) {
+        this.sellingPrice = salePrice;
+    }
+
+    public UnitOfMeasure getUnitOfMeasure() {
+        return this.unit;
+    }
+
+    public void setUnitOfMeasure(UnitOfMeasure unit) {
+        this.unit = unit;
+    }
 }

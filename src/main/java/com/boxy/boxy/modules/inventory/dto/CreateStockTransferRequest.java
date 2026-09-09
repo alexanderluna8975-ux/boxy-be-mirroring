@@ -1,7 +1,6 @@
 package com.boxy.boxy.modules.inventory.dto;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -10,20 +9,22 @@ import java.util.List;
 
 @Data
 public class CreateStockTransferRequest {
-    @NotBlank(message = "Source warehouse is required")
+    @NotNull(message = "Source warehouse is required")
+    @JsonAlias({"originWarehouseId", "sourceWarehouseId"})
     private Long sourceWarehouseId;
 
-    @NotBlank(message = "Destination warehouse is required")
+    @NotNull(message = "Destination warehouse is required")
+    @JsonAlias({"destinationWarehouseId", "destWarehouseId"})
     private Long destinationWarehouseId;
 
     private String notes;
 
-    @NotEmpty(message = "At least one item is required")
+    @JsonAlias({"lines", "items"})
     private List<TransferItemRequest> items;
 
     @Data
     public static class TransferItemRequest {
-        @NotBlank(message = "Product ID is required")
+        @NotNull(message = "Product ID is required")
         private Long productId;
 
         @NotNull(message = "Quantity is required")

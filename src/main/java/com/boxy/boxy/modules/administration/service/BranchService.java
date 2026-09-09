@@ -77,6 +77,28 @@ public class BranchService {
         return toDto(savedBranch);
     }
 
+    @Transactional
+    public BranchDto updateBranch(Long id, CreateBranchRequest request) {
+        Branch branch = branchRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Branch", id));
+
+        if (request.getName() != null) branch.setName(request.getName());
+        if (request.getCode() != null) branch.setCode(request.getCode().toUpperCase());
+        if (request.getAddress() != null) branch.setAddress(request.getAddress());
+        if (request.getPhone() != null) branch.setPhone(request.getPhone());
+        if (request.getEmail() != null) branch.setEmail(request.getEmail());
+
+        return toDto(branchRepository.save(branch));
+    }
+
+    @Transactional
+    public BranchDto deactivateBranch(Long id) {
+        Branch branch = branchRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Branch", id));
+        branch.setIsActive(!Boolean.TRUE.equals(branch.getIsActive()));
+        return toDto(branchRepository.save(branch));
+    }
+
     private BranchDto toDto(Branch branch) {
         List<WarehouseDto> warehouseDtos = warehouseRepository.findByBranchIdAndDeletedAtIsNull(branch.getId()).stream()
                 .map(w -> WarehouseDto.builder()
@@ -85,6 +107,7 @@ public class BranchService {
                         .name(w.getName())
                         .isDefault(Boolean.TRUE.equals(w.getIsDefault()))
                         .isActive(Boolean.TRUE.equals(w.getIsActive()))
+                        .status(Boolean.TRUE.equals(w.getIsActive()) ? "active" : "inactive")
                         .build())
                 .toList();
 

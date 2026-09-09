@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -53,7 +54,26 @@ public class UserService {
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
-        if (userRepository.findByUsernameAndDeletedAtIsNull(request.getUsername()).isPresent()) {
+        String username = request.getUsername();
+        if (username == null || username.isBlank()) {
+            username = request.getEmail().split("@")[0];
+        }
+
+        String rawPassword = request.getPassword();
+        if (rawPassword == null || rawPassword.isBlank()) {
+            rawPassword = "Password#2026!Secured$";
+        }
+
+        String firstName = request.getFirstName();
+        String lastName = request.getLastName();
+        if (firstName == null || firstName.isBlank()) {
+            firstName = username;
+        }
+        if (lastName == null || lastName.isBlank()) {
+            lastName = "Boxy";
+        }
+
+        if (userRepository.findByUsernameAndDeletedAtIsNull(username).isPresent()) {
             throw new BusinessException("USERNAME_EXISTS", "Username already in use.");
         }
         if (userRepository.findByEmailAndDeletedAtIsNull(request.getEmail()).isPresent()) {
@@ -62,11 +82,11 @@ public class UserService {
 
         User user = User.builder()
                 .company(company)
-                .username(request.getUsername())
+                .username(username)
                 .email(request.getEmail())
-                .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .firstName(request.getFirstName())
-                .lastName(request.getLastName())
+                .passwordHash(passwordEncoder.encode(rawPassword))
+                .firstName(firstName)
+                .lastName(lastName)
                 .avatarUrl(request.getAvatarUrl())
                 .status("ACTIVE")
                 .build();
@@ -91,6 +111,62 @@ public class UserService {
 
         User saved = userRepository.save(user);
         return toDto(saved);
+    }
+
+    @Transactional
+    public UserDto updateUser(Long id, CreateUserRequest request) {
+        User user = userRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User", id));
+
+        if (request.getFirstName() != null && !request.getFirstName().isBlank()) user.setFirstName(request.getFirstName());
+        if (request.getLastName() != null && !request.getLastName().isBlank()) user.setLastName(request.getLastName());
+        if (request.getEmail() != null && !request.getEmail().isBlank()) user.setEmail(request.getEmail());
+        if (request.getUsername() != null && !request.getUsername().isBlank()) user.setUsername(request.getUsername());
+        if (request.getAvatarUrl() != null) user.setAvatarUrl(request.getAvatarUrl());
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        }
+
+        if (request.getBranchAssignments() != null && !request.getBranchAssignments().isEmpty()) {
+            user.getBranchRoles().clear();
+            for (var assignReq : request.getBranchAssignments()) {
+                Branch branch = branchRepository.findByIdAndDeletedAtIsNull(assignReq.getBranchId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Branch", assignReq.getBranchId()));
+                Role role = roleRepository.findById(assignReq.getRoleId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Role", assignReq.getRoleId()));
+
+                UserBranchRole ubr = UserBranchRole.builder()
+                        .user(user)
+                        .branch(branch)
+                        .role(role)
+                        .isDefault(assignReq.isDefault())
+                        .build();
+
+                user.getBranchRoles().add(ubr);
+            }
+        }
+
+        return toDto(userRepository.save(user));
+    }
+
+    @Transactional
+    public UserDto deactivateUser(Long id) {
+        User user = userRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        String newStatus = "ACTIVE".equalsIgnoreCase(user.getStatus()) ? "INACTIVE" : "ACTIVE";
+        user.setStatus(newStatus);
+        return toDto(userRepository.save(user));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean checkUserUnique(String field, String value, Long excludeId) {
+        Optional<User> existing = "email".equalsIgnoreCase(field)
+                ? userRepository.findByEmailAndDeletedAtIsNull(value)
+                : userRepository.findByUsernameAndDeletedAtIsNull(value);
+        if (existing.isEmpty()) {
+            return true;
+        }
+        return excludeId != null && existing.get().getId().equals(excludeId);
     }
 
     private UserDto toDto(User user) {

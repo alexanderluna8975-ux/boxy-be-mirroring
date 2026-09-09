@@ -80,6 +80,18 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(error, HttpStatus.FORBIDDEN);
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> handleMaxUploadSizeExceeded(org.springframework.web.multipart.MaxUploadSizeExceededException ex, HttpServletRequest request) {
+        ApiError error = ApiError.builder()
+                .code("MAX_UPLOAD_SIZE_EXCEEDED")
+                .message("El archivo seleccionado excede el tamaño máximo permitido (50MB).")
+                .status(HttpStatus.PAYLOAD_TOO_LARGE.value())
+                .path(request.getRequestURI())
+                .timestamp(Instant.now())
+                .build();
+        return new ResponseEntity<>(error, HttpStatus.PAYLOAD_TOO_LARGE);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleGeneralException(Exception ex, HttpServletRequest request) {
         log.error("Unhandled internal server error: ", ex);

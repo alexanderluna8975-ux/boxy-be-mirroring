@@ -21,6 +21,7 @@ public class ProductDto {
     private String brandName;
     private Long unitId;
     private String unitCode;
+    private String unitName;
     private Long taxId;
     private BigDecimal taxRate;
     private String sku;
@@ -28,12 +29,17 @@ public class ProductDto {
     private String name;
     private String description;
     private BigDecimal costPrice;
+    private BigDecimal purchasePrice;
     private BigDecimal sellingPrice;
+    private BigDecimal salePrice;
     private BigDecimal minStockAlert;
     private BigDecimal totalAvailableStock;
+    private BigDecimal totalStock;
     private boolean hasVariants;
     private String imageUrl;
     private boolean isActive;
+    private String status;
+    private String stockStatus;
     private List<ProductVariantDto> variants;
     private Instant createdAt;
 }

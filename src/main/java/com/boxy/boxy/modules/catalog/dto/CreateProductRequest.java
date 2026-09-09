@@ -13,7 +13,15 @@ public class CreateProductRequest {
     private Long brandId;
 
     @NotNull(message = "Unit of measure ID is required")
+    @com.fasterxml.jackson.annotation.JsonAlias({"unitId", "unitOfMeasureId"})
     private Long unitId;
+
+    public Long getUnitOfMeasureId() {
+        return unitId;
+    }
+    public void setUnitOfMeasureId(Long unitOfMeasureId) {
+        this.unitId = unitOfMeasureId;
+    }
 
     private Long taxId;
 

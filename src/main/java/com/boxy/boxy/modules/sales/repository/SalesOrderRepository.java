@@ -12,4 +12,6 @@ import java.util.Optional;
 public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
     Page<SalesOrder> findByBranchIdOrderByCreatedAtDesc(Long branchId, Pageable pageable);
     Optional<SalesOrder> findByOrderNumber(String orderNumber);
+    Page<SalesOrder> findAllByOrderByCreatedAtDesc(Pageable pageable);
+    Page<SalesOrder> findByOrderTypeOrderByCreatedAtDesc(String orderType, Pageable pageable);
 }

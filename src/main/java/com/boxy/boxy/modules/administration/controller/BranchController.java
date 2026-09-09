@@ -10,7 +10,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -36,10 +35,23 @@ public class BranchController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('administration:settings:manage') or hasAuthority('administration:manage') or hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_OWNER') or hasAuthority('ROLE_ADMIN')")
     @Operation(summary = "Create a new branch")
     public ResponseEntity<ApiResponse<BranchDto>> createBranch(@Valid @RequestBody CreateBranchRequest request) {
         BranchDto created = branchService.createBranch(request);
         return new ResponseEntity<>(ApiResponse.ok(created, "Branch created successfully"), HttpStatus.CREATED);
+    }
+
+    @PutMapping("/{id}")
+    @Operation(summary = "Update branch by ID")
+    public ResponseEntity<ApiResponse<BranchDto>> updateBranch(
+            @PathVariable Long id,
+            @Valid @RequestBody CreateBranchRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(branchService.updateBranch(id, request), "Branch updated successfully"));
+    }
+
+    @PatchMapping("/{id}/deactivate")
+    @Operation(summary = "Toggle branch active status")
+    public ResponseEntity<ApiResponse<BranchDto>> deactivateBranch(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(branchService.deactivateBranch(id)));
     }
 }

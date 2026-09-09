@@ -11,4 +11,5 @@ import java.util.Optional;
 public interface BrandRepository extends JpaRepository<Brand, Long> {
     List<Brand> findByCompanyIdAndDeletedAtIsNull(Long companyId);
     Optional<Brand> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Brand> findByCompanyIdAndNameIgnoreCaseAndDeletedAtIsNull(Long companyId, String name);
 }

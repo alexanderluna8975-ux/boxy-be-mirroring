@@ -13,4 +13,6 @@ public interface WarehouseRepository extends JpaRepository<Warehouse, Long> {
     List<Warehouse> findByBranchCompanyIdAndDeletedAtIsNull(Long companyId);
     Optional<Warehouse> findByIdAndDeletedAtIsNull(Long id);
     Optional<Warehouse> findByBranchIdAndIsDefaultTrueAndDeletedAtIsNull(Long branchId);
+    Optional<Warehouse> findByBranchCompanyIdAndNameIgnoreCaseAndDeletedAtIsNull(Long companyId, String name);
+    Optional<Warehouse> findByBranchCompanyIdAndCodeIgnoreCaseAndDeletedAtIsNull(Long companyId, String code);
 }

@@ -35,6 +35,7 @@ public class ProductService {
     private final UnitOfMeasureRepository unitOfMeasureRepository;
     private final TaxRepository taxRepository;
     private final CompanyRepository companyRepository;
+    private final com.boxy.boxy.modules.inventory.repository.StockLevelRepository stockLevelRepository;
 
     @Transactional(readOnly = true)
     public Page<ProductDto> getProducts(String search, Long categoryId, Long brandId, Boolean isActive, Pageable pageable) {
@@ -101,6 +102,62 @@ public class ProductService {
         return toDto(saved);
     }
 
+    @Transactional
+    public ProductDto updateProduct(Long id, CreateProductRequest request) {
+        Product p = productRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+
+        if (request.getCategoryId() != null) {
+            Category cat = categoryRepository.findByIdAndDeletedAtIsNull(request.getCategoryId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Category", request.getCategoryId()));
+            p.setCategory(cat);
+        }
+        if (request.getBrandId() != null) {
+            Brand brand = brandRepository.findByIdAndDeletedAtIsNull(request.getBrandId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Brand", request.getBrandId()));
+            p.setBrand(brand);
+        }
+        if (request.getUnitOfMeasureId() != null) {
+            UnitOfMeasure uom = unitOfMeasureRepository.findByIdAndDeletedAtIsNull(request.getUnitOfMeasureId())
+                    .orElseThrow(() -> new ResourceNotFoundException("UnitOfMeasure", request.getUnitOfMeasureId()));
+            p.setUnitOfMeasure(uom);
+        }
+
+        if (request.getSku() != null) p.setSku(request.getSku().trim().toUpperCase());
+        if (request.getBarcode() != null) p.setBarcode(request.getBarcode().trim());
+        if (request.getName() != null) p.setName(request.getName().trim());
+        if (request.getDescription() != null) p.setDescription(request.getDescription());
+        if (request.getCostPrice() != null) p.setCostPrice(request.getCostPrice());
+        if (request.getSellingPrice() != null) p.setSellingPrice(request.getSellingPrice());
+        if (request.getMinStockAlert() != null) p.setMinStockAlert(request.getMinStockAlert());
+        if (request.getImageUrl() != null) p.setImageUrl(request.getImageUrl());
+
+        return toDto(productRepository.save(p));
+    }
+
+    @Transactional
+    public ProductDto archiveProduct(Long id) {
+        Product p = productRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        p.setIsActive(!Boolean.TRUE.equals(p.getIsActive()));
+        return toDto(productRepository.save(p));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isUnique(String field, String value, Long excludeId) {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+        if ("sku".equalsIgnoreCase(field)) {
+            return productRepository.findByCompanyIdAndSkuIgnoreCaseAndDeletedAtIsNull(companyId, value)
+                    .map(p -> p.getId().equals(excludeId))
+                    .orElse(true);
+        } else if ("barcode".equalsIgnoreCase(field)) {
+            return productRepository.findByCompanyIdAndBarcodeAndDeletedAtIsNull(companyId, value)
+                    .map(p -> p.getId().equals(excludeId))
+                    .orElse(true);
+        }
+        return true;
+    }
+
     @Transactional(readOnly = true)
     public List<CategoryDto> getCategories() {
         Long companyId = SecurityUtils.getCurrentCompanyId();
@@ -144,14 +201,21 @@ public class ProductService {
     }
 
     public ProductDto toDto(Product p) {
+        BigDecimal totalStock = stockLevelRepository != null ? stockLevelRepository.getTotalAvailableStockByProductId(p.getId()) : BigDecimal.ZERO;
+        if (totalStock == null) totalStock = BigDecimal.ZERO;
+        boolean active = Boolean.TRUE.equals(p.getIsActive());
+        String status = active ? "active" : "archived";
+        String stockStatus = totalStock.compareTo(BigDecimal.ZERO) > 0 ? "in-stock" : "out-of-stock";
+
         return ProductDto.builder()
                 .id(p.getId())
                 .categoryId(p.getCategory() != null ? p.getCategory().getId() : null)
                 .categoryName(p.getCategory() != null ? p.getCategory().getName() : null)
                 .brandId(p.getBrand() != null ? p.getBrand().getId() : null)
                 .brandName(p.getBrand() != null ? p.getBrand().getName() : null)
-                .unitId(p.getUnit().getId())
-                .unitCode(p.getUnit().getCode())
+                .unitId(p.getUnit() != null ? p.getUnit().getId() : null)
+                .unitCode(p.getUnit() != null ? p.getUnit().getCode() : null)
+                .unitName(p.getUnit() != null ? p.getUnit().getName() : null)
                 .taxId(p.getTax() != null ? p.getTax().getId() : null)
                 .taxRate(p.getTax() != null ? p.getTax().getRate() : BigDecimal.ZERO)
                 .sku(p.getSku())
@@ -159,11 +223,17 @@ public class ProductService {
                 .name(p.getName())
                 .description(p.getDescription())
                 .costPrice(p.getCostPrice())
+                .purchasePrice(p.getCostPrice())
                 .sellingPrice(p.getSellingPrice())
+                .salePrice(p.getSellingPrice())
                 .minStockAlert(p.getMinStockAlert())
+                .totalAvailableStock(totalStock)
+                .totalStock(totalStock)
                 .hasVariants(Boolean.TRUE.equals(p.getHasVariants()))
                 .imageUrl(p.getImageUrl())
-                .isActive(Boolean.TRUE.equals(p.getIsActive()))
+                .isActive(active)
+                .status(status)
+                .stockStatus(stockStatus)
                 .createdAt(p.getCreatedAt())
                 .build();
     }

@@ -12,4 +12,5 @@ import java.util.Optional;
 public interface StockAdjustmentRepository extends JpaRepository<StockAdjustment, Long> {
     Page<StockAdjustment> findByCompanyIdOrderByCreatedAtDesc(Long companyId, Pageable pageable);
     Optional<StockAdjustment> findByAdjustmentNumber(String adjustmentNumber);
+    Page<StockAdjustment> findAllByOrderByCreatedAtDesc(Pageable pageable);
 }
