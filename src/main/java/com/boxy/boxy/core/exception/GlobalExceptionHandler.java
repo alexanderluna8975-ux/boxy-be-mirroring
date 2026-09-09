@@ -92,6 +92,19 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(error, HttpStatus.PAYLOAD_TOO_LARGE);
     }
 
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<ApiError> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException ex, HttpServletRequest request) {
+        log.warn("Resource not found: {}", request.getRequestURI());
+        ApiError error = ApiError.builder()
+                .code("RESOURCE_NOT_FOUND")
+                .message("Endpoint or resource not found: " + request.getRequestURI())
+                .status(HttpStatus.NOT_FOUND.value())
+                .path(request.getRequestURI())
+                .timestamp(Instant.now())
+                .build();
+        return new ResponseEntity<>(error, HttpStatus.NOT_FOUND);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleGeneralException(Exception ex, HttpServletRequest request) {
         log.error("Unhandled internal server error: ", ex);

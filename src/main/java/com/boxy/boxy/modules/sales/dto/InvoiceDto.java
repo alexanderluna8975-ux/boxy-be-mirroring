@@ -41,5 +41,9 @@ public class InvoiceDto {
     private List<InvoiceItemDto> items;
     private List<InvoiceItemDto> lines;
     private List<PaymentDto> payments;
+    private BigDecimal amountPaid;
+    private BigDecimal balanceDue;
+    private Instant voidedAt;
+    private String voidedBy;
     private Instant createdAt;
 }

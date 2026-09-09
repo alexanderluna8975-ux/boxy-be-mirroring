@@ -190,10 +190,29 @@ public class SalesController {
         return new ResponseEntity<>(ApiResponse.ok(invoice, "Sale completed successfully"), HttpStatus.CREATED);
     }
 
-    @GetMapping("/sales/{id}")
+    @GetMapping({"/sales/{id:\\d+}", "/sales/{id}"})
     @Operation(summary = "Get completed sale / invoice by ID")
-    public ResponseEntity<ApiResponse<InvoiceDto>> getSaleById(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(salesService.getSaleById(id)));
+    public ResponseEntity<ApiResponse<InvoiceDto>> getSaleById(@PathVariable String id) {
+        Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
+        return ResponseEntity.ok(ApiResponse.ok(salesService.getSaleById(cleanId)));
+    }
+
+    @PostMapping({"/sales/{id}/payments", "/sales/{id:\\d+}/payments"})
+    @Operation(summary = "Record partial or total settlement payment for a sale")
+    public ResponseEntity<ApiResponse<InvoiceDto>> recordPayment(
+            @PathVariable String id,
+            @RequestBody Map<String, Object> payload) {
+        Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
+        InvoiceDto updated = salesService.recordPayment(cleanId, payload);
+        return ResponseEntity.ok(ApiResponse.ok(updated, "Payment recorded successfully"));
+    }
+
+    @PatchMapping({"/sales/{id}/void", "/sales/{id:\\d+}/void"})
+    @Operation(summary = "Void sale and restore inventory stock")
+    public ResponseEntity<ApiResponse<InvoiceDto>> voidSale(@PathVariable String id) {
+        Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
+        InvoiceDto voided = salesService.voidSale(cleanId);
+        return ResponseEntity.ok(ApiResponse.ok(voided, "Sale voided and stock restored"));
     }
 
     @GetMapping("/invoices")
@@ -203,5 +222,66 @@ public class SalesController {
             @PageableDefault(size = 20) Pageable pageable) {
         Page<InvoiceDto> page = salesService.getInvoices(branchId, pageable);
         return ResponseEntity.ok(ApiResponse.paged(page.getContent(), com.boxy.boxy.core.response.PageMeta.from(page)));
+    }
+
+    // --- SALES DOCUMENTS (UNIFIED LIST & SUMMARY FOR POS & VENTAS) ---
+
+    @GetMapping("/documents")
+    @Operation(summary = "Unified sales & quotations documents list")
+    public ResponseEntity<ApiResponse<List<SalesDocumentDto>>> getDocuments(
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) String kind,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String paymentMethod,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String saleStatus,
+            @RequestParam(required = false) Long customerId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        int finalLimit = Math.max(limit, pageSize);
+        Page<SalesDocumentDto> paged = salesService.getSalesDocuments(branchId, kind, search, paymentMethod, status, saleStatus, customerId, PageRequest.of(page - 1, finalLimit));
+        return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), PageMeta.of(page, finalLimit, paged.getTotalElements())));
+    }
+
+    @GetMapping("/documents/summary")
+    @Operation(summary = "KPI summary for sales documents")
+    public ResponseEntity<ApiResponse<SalesSummaryDto>> getDocumentsSummary(
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) Long customerId) {
+        return ResponseEntity.ok(ApiResponse.ok(salesService.getSalesSummary(branchId, customerId)));
+    }
+
+    @GetMapping("/next-folio")
+    @Operation(summary = "Get preview of next sales and quotation folio numbers")
+    public ResponseEntity<ApiResponse<NextFolioPreviewDto>> getNextFolioPreview() {
+        return ResponseEntity.ok(ApiResponse.ok(salesService.getNextFolioPreview()));
+    }
+
+    // --- PRICE ADJUSTMENTS ---
+
+    @GetMapping("/price-adjustments")
+    @Operation(summary = "List price adjustments with pagination")
+    public ResponseEntity<ApiResponse<List<PriceAdjustmentDto>>> getPriceAdjustments(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        int finalLimit = Math.max(limit, pageSize);
+        Page<PriceAdjustmentDto> paged = salesService.getPriceAdjustments(PageRequest.of(page - 1, finalLimit));
+        return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), PageMeta.of(page, finalLimit, paged.getTotalElements())));
+    }
+
+    @GetMapping("/price-adjustments/{id:\\d+}")
+    @Operation(summary = "Get price adjustment details by ID")
+    public ResponseEntity<ApiResponse<PriceAdjustmentDto>> getPriceAdjustmentById(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(salesService.getPriceAdjustmentById(id)));
+    }
+
+    @PostMapping("/price-adjustments")
+    @Operation(summary = "Create and apply a bulk price adjustment by target margin")
+    public ResponseEntity<ApiResponse<PriceAdjustmentDto>> createPriceAdjustment(
+            @Valid @RequestBody CreatePriceAdjustmentRequest request) {
+        PriceAdjustmentDto created = salesService.createPriceAdjustment(request);
+        return new ResponseEntity<>(ApiResponse.ok(created, "Price adjustment applied successfully"), HttpStatus.CREATED);
     }
 }

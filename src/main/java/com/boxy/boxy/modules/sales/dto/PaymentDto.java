@@ -17,6 +17,9 @@ public class PaymentDto {
     private String paymentMethod;
     private BigDecimal amount;
     private String referenceCode;
+    private String note;
+    private String recordedBy;
+    private Instant recordedAt;
     private String status;
     private Instant createdAt;
 }

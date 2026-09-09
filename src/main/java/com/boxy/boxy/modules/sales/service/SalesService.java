@@ -30,7 +30,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -48,6 +51,8 @@ public class SalesService {
     private final StockMovementRepository stockMovementRepository;
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
+    private final PriceAdjustmentRepository priceAdjustmentRepository;
+    private final PaymentRepository paymentRepository;
 
     @Transactional(readOnly = true)
     public List<CustomerDto> getAllCustomers() {
@@ -557,6 +562,86 @@ public class SalesService {
         return toInvoiceDto(invoice);
     }
 
+    @Transactional
+    public InvoiceDto voidSale(Long id) {
+        Invoice invoice = invoiceRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Sale", id));
+
+        if ("VOIDED".equalsIgnoreCase(invoice.getStatus())) {
+            throw new BusinessException("ALREADY_VOIDED", "La venta ya se encuentra anulada.");
+        }
+
+        invoice.setStatus("VOIDED");
+
+        // Restore stock for each item in the invoice
+        Warehouse warehouse = invoice.getWarehouse();
+        Long currentUserId = SecurityUtils.getCurrentUserId();
+        User user = currentUserId != null ? userRepository.findById(currentUserId).orElse(null) : null;
+
+        for (InvoiceItem item : invoice.getItems()) {
+            if (item.getProduct() != null && warehouse != null) {
+                Product product = item.getProduct();
+                StockLevel stock = stockLevelRepository
+                        .findByWarehouseIdAndProductIdAndVariantIdIsNull(warehouse.getId(), product.getId())
+                        .orElseGet(() -> StockLevel.builder()
+                                .warehouse(warehouse)
+                                .product(product)
+                                .quantityAvailable(BigDecimal.ZERO)
+                                .quantityReserved(BigDecimal.ZERO)
+                                .quantityInTransit(BigDecimal.ZERO)
+                                .build());
+
+                BigDecimal restoredQty = stock.getQuantityAvailable().add(item.getQuantity());
+                stock.setQuantityAvailable(restoredQty);
+                stockLevelRepository.save(stock);
+
+                StockMovement movement = StockMovement.builder()
+                        .warehouse(warehouse)
+                        .product(product)
+                        .movementType("RETURN")
+                        .quantity(item.getQuantity())
+                        .unitCost(item.getUnitCost())
+                        .balanceAfter(restoredQty)
+                        .referenceType("SALE_VOID")
+                        .referenceId(invoice.getSeries() + "-" + invoice.getNumber())
+                        .notes("Anulación de venta " + invoice.getSeries() + "-" + invoice.getNumber())
+                        .createdBy(user)
+                        .build();
+                stockMovementRepository.save(movement);
+            }
+        }
+
+        Invoice saved = invoiceRepository.save(invoice);
+        return toInvoiceDto(saved);
+    }
+
+    @Transactional
+    public InvoiceDto recordPayment(Long id, Map<String, Object> payload) {
+        Invoice invoice = invoiceRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Sale", id));
+
+        if ("VOIDED".equalsIgnoreCase(invoice.getStatus())) {
+            throw new BusinessException("SALE_VOIDED", "No se pueden registrar pagos en una venta anulada.");
+        }
+
+        BigDecimal amount = new BigDecimal(String.valueOf(payload.getOrDefault("amount", 0)));
+        String method = String.valueOf(payload.getOrDefault("paymentMethod", "CASH")).toUpperCase();
+        String note = String.valueOf(payload.getOrDefault("note", ""));
+
+        Payment payment = Payment.builder()
+                .invoice(invoice)
+                .paymentMethod(method)
+                .amount(amount)
+                .referenceCode(note)
+                .status("CONFIRMED")
+                .build();
+        paymentRepository.save(payment);
+        invoice.getPayments().add(payment);
+
+        Invoice saved = invoiceRepository.save(invoice);
+        return toInvoiceDto(saved);
+    }
+
     @Transactional(readOnly = true)
     public Page<InvoiceDto> getInvoices(Long branchId, Pageable pageable) {
         if (branchId != null) {
@@ -628,12 +713,33 @@ public class SalesService {
                         .build())
                 .toList();
 
+        BigDecimal total = inv.getTotalAmount() != null ? inv.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal amountPaid = inv.getPayments().stream()
+                .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal balanceDue = total.subtract(amountPaid);
+        if (balanceDue.compareTo(BigDecimal.ZERO) < 0) balanceDue = BigDecimal.ZERO;
+
+        String saleStatus;
+        if ("VOIDED".equalsIgnoreCase(inv.getStatus())) {
+            saleStatus = "voided";
+        } else if (amountPaid.compareTo(total) >= 0) {
+            saleStatus = "paid";
+        } else if (amountPaid.compareTo(BigDecimal.ZERO) > 0) {
+            saleStatus = "partial";
+        } else {
+            saleStatus = "pending";
+        }
+
         List<PaymentDto> payDtos = inv.getPayments().stream()
                 .map(p -> PaymentDto.builder()
                         .id(p.getId())
-                        .paymentMethod(p.getPaymentMethod())
+                        .paymentMethod(p.getPaymentMethod() != null ? p.getPaymentMethod().toLowerCase() : "cash")
                         .amount(p.getAmount())
                         .referenceCode(p.getReferenceCode())
+                        .note(p.getReferenceCode() != null ? p.getReferenceCode() : "")
+                        .recordedBy(inv.getCreatedBy() != null ? inv.getCreatedBy().getFullName() : "Admin")
+                        .recordedAt(p.getCreatedAt())
                         .status(p.getStatus())
                         .createdAt(p.getCreatedAt())
                         .build())
@@ -660,11 +766,15 @@ public class SalesService {
                 .subtotal(inv.getSubtotal())
                 .discountAmount(inv.getDiscountAmount())
                 .taxAmount(inv.getTaxAmount())
-                .totalAmount(inv.getTotalAmount())
-                .total(inv.getTotalAmount())
-                .status(inv.getStatus())
+                .totalAmount(total)
+                .total(total)
+                .amountPaid(amountPaid)
+                .balanceDue(balanceDue)
+                .status(saleStatus)
+                .voidedAt("voided".equals(saleStatus) ? inv.getCreatedAt() : null)
+                .voidedBy("voided".equals(saleStatus) ? "Admin" : null)
                 .paymentMethod(payMethod)
-                .amountTendered(inv.getTotalAmount())
+                .amountTendered(total)
                 .changeDue(BigDecimal.ZERO)
                 .createdByName(inv.getCreatedBy() != null ? inv.getCreatedBy().getFullName() : "Admin")
                 .soldBy(inv.getCreatedBy() != null ? inv.getCreatedBy().getFullName() : "Admin")
@@ -695,5 +805,380 @@ public class SalesService {
                             .build();
                     return customerRepository.save(defaultCustomer);
                 });
+    }
+
+    // --- PRICE ADJUSTMENTS ---
+
+    @Transactional(readOnly = true)
+    public Page<PriceAdjustmentDto> getPriceAdjustments(Pageable pageable) {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+        return priceAdjustmentRepository.findByCompanyIdOrderByAppliedAtDesc(companyId, pageable)
+                .map(this::toPriceAdjustmentDto);
+    }
+
+    @Transactional(readOnly = true)
+    public PriceAdjustmentDto getPriceAdjustmentById(Long id) {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+        PriceAdjustment pa = priceAdjustmentRepository.findByIdAndCompanyId(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("PriceAdjustment", id));
+        return toPriceAdjustmentDto(pa);
+    }
+
+    @Transactional
+    public PriceAdjustmentDto createPriceAdjustment(CreatePriceAdjustmentRequest request) {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Company company = companyRepository.findById(companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
+
+        String appliedBy = SecurityUtils.getCurrentUser()
+                .map(u -> u.getFullName() != null && !u.getFullName().isBlank() ? u.getFullName() : u.getUsername())
+                .orElse("Admin");
+
+        long count = priceAdjustmentRepository.countByCompanyId(companyId) + 1;
+        String folio = String.format("PR-%05d", count);
+
+        PriceAdjustment pa = PriceAdjustment.builder()
+                .company(company)
+                .folio(folio)
+                .marginPercent(request.getMarginPercent())
+                .notes(request.getNotes())
+                .appliedBy(appliedBy)
+                .appliedAt(Instant.now())
+                .build();
+
+        BigDecimal targetMargin = request.getMarginPercent();
+
+        for (String rawId : request.getProductIds()) {
+            Long prodId;
+            try {
+                prodId = Long.parseLong(rawId.replace("product-", "").trim());
+            } catch (NumberFormatException ex) {
+                continue;
+            }
+
+            Product product = productRepository.findByIdAndDeletedAtIsNull(prodId).orElse(null);
+            if (product == null) {
+                continue;
+            }
+
+            BigDecimal cost = product.getCostPrice() != null && product.getCostPrice().compareTo(BigDecimal.ZERO) > 0
+                    ? product.getCostPrice()
+                    : BigDecimal.ZERO;
+
+            if (cost.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            BigDecimal prevSalePrice = product.getSellingPrice() != null ? product.getSellingPrice() : BigDecimal.ZERO;
+            BigDecimal newSalePrice = computeSalePrice(cost, targetMargin);
+            BigDecimal prevMargin = computeMarginPercent(prevSalePrice, cost);
+
+            PriceAdjustmentLine line = PriceAdjustmentLine.builder()
+                    .priceAdjustment(pa)
+                    .product(product)
+                    .sku(product.getSku())
+                    .productName(product.getName())
+                    .purchasePrice(cost)
+                    .previousSalePrice(prevSalePrice)
+                    .newSalePrice(newSalePrice)
+                    .previousMarginPercent(prevMargin)
+                    .marginPercent(targetMargin)
+                    .build();
+
+            pa.getLines().add(line);
+
+            product.setSellingPrice(newSalePrice);
+            productRepository.save(product);
+        }
+
+        if (pa.getLines().isEmpty()) {
+            throw new BusinessException("NO_VALID_PRODUCTS", "Ninguno de los productos seleccionados tiene un costo válido para recalcular el precio.");
+        }
+
+        PriceAdjustment saved = priceAdjustmentRepository.save(pa);
+        return toPriceAdjustmentDto(saved);
+    }
+
+    private BigDecimal computeSalePrice(BigDecimal cost, BigDecimal targetMarginPercent) {
+        if (cost == null || cost.compareTo(BigDecimal.ZERO) <= 0 ||
+            targetMarginPercent == null || targetMarginPercent.compareTo(BigDecimal.ZERO) < 0 ||
+            targetMarginPercent.compareTo(new BigDecimal("100")) >= 0) {
+            return cost != null ? cost : BigDecimal.ZERO;
+        }
+        BigDecimal factor = BigDecimal.ONE.subtract(targetMarginPercent.divide(new BigDecimal("100"), 6, java.math.RoundingMode.HALF_UP));
+        return cost.divide(factor, 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal computeMarginPercent(BigDecimal salePrice, BigDecimal cost) {
+        if (salePrice == null || salePrice.compareTo(BigDecimal.ZERO) <= 0 || cost == null) {
+            return null;
+        }
+        BigDecimal diff = salePrice.subtract(cost);
+        return diff.divide(salePrice, 4, java.math.RoundingMode.HALF_UP).multiply(new BigDecimal("100")).setScale(2, java.math.RoundingMode.HALF_UP);
+    }
+
+    private PriceAdjustmentDto toPriceAdjustmentDto(PriceAdjustment pa) {
+        List<PriceAdjustmentLineDto> lineDtos = pa.getLines().stream()
+                .map(l -> PriceAdjustmentLineDto.builder()
+                        .id(l.getId())
+                        .productId(l.getProduct() != null ? l.getProduct().getId() : null)
+                        .sku(l.getSku())
+                        .productName(l.getProductName())
+                        .purchasePrice(l.getPurchasePrice())
+                        .previousSalePrice(l.getPreviousSalePrice())
+                        .newSalePrice(l.getNewSalePrice())
+                        .previousMarginPercent(l.getPreviousMarginPercent())
+                        .marginPercent(l.getMarginPercent())
+                        .build())
+                .toList();
+
+        BigDecimal totalDelta = BigDecimal.ZERO;
+        int deltaCount = 0;
+        for (PriceAdjustmentLine l : pa.getLines()) {
+            if (l.getPreviousSalePrice() != null && l.getPreviousSalePrice().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal diff = l.getNewSalePrice().subtract(l.getPreviousSalePrice());
+                BigDecimal delta = diff.divide(l.getPreviousSalePrice(), 4, java.math.RoundingMode.HALF_UP).multiply(new BigDecimal("100"));
+                totalDelta = totalDelta.add(delta);
+                deltaCount++;
+            }
+        }
+        BigDecimal avgDelta = deltaCount > 0
+                ? totalDelta.divide(BigDecimal.valueOf(deltaCount), 2, java.math.RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+
+        return PriceAdjustmentDto.builder()
+                .id(pa.getId())
+                .folio(pa.getFolio())
+                .marginPercent(pa.getMarginPercent())
+                .notes(pa.getNotes())
+                .lines(lineDtos)
+                .appliedBy(pa.getAppliedBy())
+                .appliedAt(pa.getAppliedAt())
+                .lineCount(pa.getLines().size())
+                .averageDeltaPercent(avgDelta)
+                .build();
+    }
+
+    // --- SALES DOCUMENTS (UNIFIED LIST & SUMMARY) ---
+
+    @Transactional(readOnly = true)
+    public Page<SalesDocumentDto> getSalesDocuments(Long branchId, String kind, String search,
+                                                    String paymentMethod, String status,
+                                                    String saleStatus, Long customerId,
+                                                    Pageable pageable) {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+
+        List<SalesDocumentDto> docs = new ArrayList<>();
+
+        boolean includeSales = kind == null || kind.isBlank() || "sale".equalsIgnoreCase(kind);
+        boolean includeQuotations = kind == null || kind.isBlank() || "quotation".equalsIgnoreCase(kind);
+
+        if (includeSales) {
+            List<Invoice> invoices = invoiceRepository.findByCompanyId(companyId);
+            for (Invoice inv : invoices) {
+                if (branchId != null && inv.getBranch() != null && !branchId.equals(inv.getBranch().getId())) {
+                    continue;
+                }
+                if (customerId != null && inv.getCustomer() != null && !customerId.equals(inv.getCustomer().getId())) {
+                    continue;
+                }
+                docs.add(toSaleDocumentDto(inv));
+            }
+        }
+
+        if (includeQuotations) {
+            List<SalesOrder> orders = salesOrderRepository.findByCompanyId(companyId);
+            for (SalesOrder so : orders) {
+                if (branchId != null && so.getBranch() != null && !branchId.equals(so.getBranch().getId())) {
+                    continue;
+                }
+                if (customerId != null && so.getCustomer() != null && !customerId.equals(so.getCustomer().getId())) {
+                    continue;
+                }
+                docs.add(toQuotationDocumentDto(so));
+            }
+        }
+
+        // Filter in-memory
+        List<SalesDocumentDto> filtered = docs.stream()
+                .filter(d -> {
+                    if (search != null && !search.isBlank()) {
+                        String s = search.trim().toLowerCase();
+                        boolean matchesFolio = d.getFolio() != null && d.getFolio().toLowerCase().contains(s);
+                        boolean matchesCustomer = d.getCustomerName() != null && d.getCustomerName().toLowerCase().contains(s);
+                        if (!matchesFolio && !matchesCustomer) return false;
+                    }
+                    if (paymentMethod != null && !paymentMethod.isBlank()) {
+                        if (d.getPaymentMethod() == null || !d.getPaymentMethod().equalsIgnoreCase(paymentMethod)) {
+                            return false;
+                        }
+                    }
+                    if (status != null && !status.isBlank()) {
+                        if (d.getQuotationStatus() == null || !d.getQuotationStatus().equalsIgnoreCase(status)) {
+                            return false;
+                        }
+                    }
+                    if (saleStatus != null && !saleStatus.isBlank()) {
+                        if (d.getSaleStatus() == null || !d.getSaleStatus().equalsIgnoreCase(saleStatus)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .sorted((a, b) -> {
+                    Instant ta = a.getIssuedAt() != null ? a.getIssuedAt() : Instant.MIN;
+                    Instant tb = b.getIssuedAt() != null ? b.getIssuedAt() : Instant.MIN;
+                    return tb.compareTo(ta);
+                })
+                .toList();
+
+        int total = filtered.size();
+        int pageNumber = pageable.getPageNumber();
+        int pageSize = pageable.getPageSize();
+        int fromIndex = pageNumber * pageSize;
+        List<SalesDocumentDto> pagedList;
+        if (fromIndex >= total) {
+            pagedList = Collections.emptyList();
+        } else {
+            int toIndex = Math.min(fromIndex + pageSize, total);
+            pagedList = filtered.subList(fromIndex, toIndex);
+        }
+
+        return new org.springframework.data.domain.PageImpl<>(pagedList, pageable, total);
+    }
+
+    @Transactional(readOnly = true)
+    public SalesSummaryDto getSalesSummary(Long branchId, Long customerId) {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+
+        List<Invoice> invoices = invoiceRepository.findByCompanyId(companyId);
+        BigDecimal collected = BigDecimal.ZERO;
+        BigDecimal receivable = BigDecimal.ZERO;
+
+        for (Invoice inv : invoices) {
+            if (branchId != null && inv.getBranch() != null && !branchId.equals(inv.getBranch().getId())) {
+                continue;
+            }
+            if (customerId != null && inv.getCustomer() != null && !customerId.equals(inv.getCustomer().getId())) {
+                continue;
+            }
+            if ("VOIDED".equalsIgnoreCase(inv.getStatus())) {
+                continue;
+            }
+
+            BigDecimal total = inv.getTotalAmount() != null ? inv.getTotalAmount() : BigDecimal.ZERO;
+            BigDecimal paid = inv.getPayments().stream()
+                    .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal balance = total.subtract(paid);
+            if (balance.compareTo(BigDecimal.ZERO) < 0) {
+                balance = BigDecimal.ZERO;
+            }
+
+            collected = collected.add(paid);
+            receivable = receivable.add(balance);
+        }
+
+        List<SalesOrder> orders = salesOrderRepository.findByCompanyId(companyId);
+        BigDecimal activeQuotations = BigDecimal.ZERO;
+        List<String> activeStatuses = List.of("draft", "pending-approval", "approved", "sent");
+
+        for (SalesOrder so : orders) {
+            if (branchId != null && so.getBranch() != null && !branchId.equals(so.getBranch().getId())) {
+                continue;
+            }
+            if (customerId != null && so.getCustomer() != null && !customerId.equals(so.getCustomer().getId())) {
+                continue;
+            }
+            String st = so.getStatus() != null ? so.getStatus().toLowerCase() : "";
+            if (activeStatuses.contains(st)) {
+                activeQuotations = activeQuotations.add(so.getTotalAmount() != null ? so.getTotalAmount() : BigDecimal.ZERO);
+            }
+        }
+
+        return SalesSummaryDto.builder()
+                .collected(collected)
+                .receivable(receivable)
+                .activeQuotations(activeQuotations)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public NextFolioPreviewDto getNextFolioPreview() {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+        long salesCount = invoiceRepository.countByCompanyId(companyId) + 1;
+        long quotationCount = salesOrderRepository.countByCompanyId(companyId) + 1;
+
+        return NextFolioPreviewDto.builder()
+                .sale(String.format("V-%05d", salesCount))
+                .quotation(String.format("COT-%05d", quotationCount))
+                .build();
+    }
+
+    private SalesDocumentDto toSaleDocumentDto(Invoice inv) {
+        String folio = inv.getSeries() != null && inv.getNumber() != null
+                ? inv.getSeries() + "-" + inv.getNumber()
+                : "V-" + String.format("%05d", inv.getId());
+
+        BigDecimal total = inv.getTotalAmount() != null ? inv.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal paid = inv.getPayments().stream()
+                .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal balanceDue = total.subtract(paid);
+        if (balanceDue.compareTo(BigDecimal.ZERO) < 0) balanceDue = BigDecimal.ZERO;
+
+        String saleStatus;
+        if ("VOIDED".equalsIgnoreCase(inv.getStatus())) {
+            saleStatus = "voided";
+        } else if (paid.compareTo(total) >= 0) {
+            saleStatus = "paid";
+        } else if (paid.compareTo(BigDecimal.ZERO) > 0) {
+            saleStatus = "partial";
+        } else {
+            saleStatus = "pending";
+        }
+
+        String paymentMethod = !inv.getPayments().isEmpty()
+                ? inv.getPayments().get(0).getPaymentMethod().toLowerCase()
+                : "cash";
+
+        return SalesDocumentDto.builder()
+                .id(String.valueOf(inv.getId()))
+                .kind("sale")
+                .folio(folio)
+                .issuedAt(inv.getCreatedAt())
+                .customerId(inv.getCustomer() != null ? String.valueOf(inv.getCustomer().getId()) : null)
+                .customerName(inv.getCustomer() != null ? inv.getCustomer().getName() : "Cliente General")
+                .lineCount(inv.getItems() != null ? inv.getItems().size() : 0)
+                .total(total)
+                .paymentMethod(paymentMethod)
+                .saleStatus(saleStatus)
+                .balanceDue(balanceDue)
+                .quotationStatus(null)
+                .branchId(inv.getBranch() != null ? String.valueOf(inv.getBranch().getId()) : "1")
+                .build();
+    }
+
+    private SalesDocumentDto toQuotationDocumentDto(SalesOrder so) {
+        String folio = so.getOrderNumber() != null ? so.getOrderNumber() : "COT-" + String.format("%05d", so.getId());
+        BigDecimal total = so.getTotalAmount() != null ? so.getTotalAmount() : BigDecimal.ZERO;
+
+        return SalesDocumentDto.builder()
+                .id(String.valueOf(so.getId()))
+                .kind("quotation")
+                .folio(folio)
+                .issuedAt(so.getCreatedAt())
+                .customerId(so.getCustomer() != null ? String.valueOf(so.getCustomer().getId()) : null)
+                .customerName(so.getCustomer() != null ? so.getCustomer().getName() : "Cliente General")
+                .lineCount(so.getItems() != null ? so.getItems().size() : 0)
+                .total(total)
+                .paymentMethod(null)
+                .saleStatus(null)
+                .balanceDue(BigDecimal.ZERO)
+                .quotationStatus(so.getStatus() != null ? so.getStatus().toLowerCase() : "draft")
+                .branchId(so.getBranch() != null ? String.valueOf(so.getBranch().getId()) : "1")
+                .build();
     }
 }

@@ -12,6 +12,8 @@ import java.util.Optional;
 public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     Page<Invoice> findByBranchIdOrderByCreatedAtDesc(Long branchId, Pageable pageable);
     Page<Invoice> findByCompanyIdOrderByCreatedAtDesc(Long companyId, Pageable pageable);
+    java.util.List<Invoice> findByCompanyId(Long companyId);
+    long countByCompanyId(Long companyId);
     Optional<Invoice> findByIdempotencyKey(String idempotencyKey);
     Optional<Invoice> findByBranchIdAndDocumentTypeAndSeriesAndNumber(Long branchId, String documentType, String series, String number);
 }

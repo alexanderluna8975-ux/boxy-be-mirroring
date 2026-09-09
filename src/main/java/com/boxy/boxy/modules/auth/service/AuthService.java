@@ -29,7 +29,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
-    @Value("${app.jwt.expiration-ms:86400000}")
+    @Value("${app.jwt.expiration-ms:1800000}")
     private long jwtExpirationMs;
 
     @Transactional(readOnly = true)
