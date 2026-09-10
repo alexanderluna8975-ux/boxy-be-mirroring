@@ -1,6 +1,6 @@
 -- =============================================================================
 -- V1__initial_schema.sql: Enterprise Multi-Branch Inventory & POS Database Schema
--- Engine: InnoDB | Charset: utf8mb4 | Collation: utf8mb4_0900_ai_ci
+-- Engine: InnoDB | Charset: utf8mb4 | Collation: utf8mb4_unicode_ci
 -- All primary keys: BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY
 -- =============================================================================
 
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS companies (
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     deleted_at DATETIME(6) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2. BRANCHES & LOCATIONS
 CREATE TABLE IF NOT EXISTS branches (
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS branches (
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_branches_company FOREIGN KEY (company_id) REFERENCES companies(id),
     UNIQUE KEY uk_branch_company_code (company_id, code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 3. WAREHOUSES
 CREATE TABLE IF NOT EXISTS warehouses (
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS warehouses (
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_warehouses_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
     UNIQUE KEY uk_warehouse_branch_code (branch_id, code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 4. USERS & AUTHENTICATION
 CREATE TABLE IF NOT EXISTS users (
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_users_company FOREIGN KEY (company_id) REFERENCES companies(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 5. ROLES & PERMISSIONS (RBAC)
 CREATE TABLE IF NOT EXISTS roles (
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS roles (
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_roles_company FOREIGN KEY (company_id) REFERENCES companies(id),
     UNIQUE KEY uk_roles_company_code (company_id, code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS permissions (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS permissions (
     code VARCHAR(100) NOT NULL UNIQUE,
     description VARCHAR(255),
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS role_permissions (
     role_id BIGINT UNSIGNED NOT NULL,
@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS role_permissions (
     PRIMARY KEY (role_id, permission_id),
     CONSTRAINT fk_rp_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
     CONSTRAINT fk_rp_permission FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS user_branch_roles (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS user_branch_roles (
     CONSTRAINT fk_ubr_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
     CONSTRAINT fk_ubr_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
     UNIQUE KEY uk_user_branch (user_id, branch_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 6. CATALOG: CATEGORIES, BRANDS, UNITS, TAXES
 CREATE TABLE IF NOT EXISTS categories (
@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS categories (
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_categories_company FOREIGN KEY (company_id) REFERENCES companies(id),
     CONSTRAINT fk_categories_parent FOREIGN KEY (parent_id) REFERENCES categories(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS brands (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS brands (
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_brands_company FOREIGN KEY (company_id) REFERENCES companies(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS units_of_measure (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS units_of_measure (
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_units_company FOREIGN KEY (company_id) REFERENCES companies(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS taxes (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS taxes (
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_taxes_company FOREIGN KEY (company_id) REFERENCES companies(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 7. PRODUCTS & VARIANTS
 CREATE TABLE IF NOT EXISTS products (
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS products (
     UNIQUE KEY uk_products_company_sku (company_id, sku),
     INDEX idx_products_barcode (barcode),
     INDEX idx_products_name (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS product_variants (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -220,7 +220,7 @@ CREATE TABLE IF NOT EXISTS product_variants (
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_variants_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 8. INVENTORY: STOCK LEVELS & KARDEX MOVEMENTS
 CREATE TABLE IF NOT EXISTS stock_levels (
@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS stock_levels (
     CONSTRAINT fk_stock_product FOREIGN KEY (product_id) REFERENCES products(id),
     CONSTRAINT fk_stock_variant FOREIGN KEY (variant_id) REFERENCES product_variants(id),
     UNIQUE KEY uk_stock_location (warehouse_id, product_id, variant_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- IMMUTABLE APPEND-ONLY KARDEX
 CREATE TABLE IF NOT EXISTS stock_movements (
@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
     CONSTRAINT fk_mov_user FOREIGN KEY (created_by) REFERENCES users(id),
     INDEX idx_mov_product_date (product_id, created_at),
     INDEX idx_mov_ref (reference_type, reference_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 9. STOCK TRANSFERS & ADJUSTMENTS
 CREATE TABLE IF NOT EXISTS stock_transfers (
@@ -280,7 +280,7 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
     CONSTRAINT fk_st_source FOREIGN KEY (source_warehouse_id) REFERENCES warehouses(id),
     CONSTRAINT fk_st_dest FOREIGN KEY (destination_warehouse_id) REFERENCES warehouses(id),
     CONSTRAINT fk_st_user FOREIGN KEY (requested_by) REFERENCES users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS stock_transfer_items (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -291,7 +291,7 @@ CREATE TABLE IF NOT EXISTS stock_transfer_items (
     quantity_received DECIMAL(12, 4) NOT NULL DEFAULT 0.0000,
     CONSTRAINT fk_sti_transfer FOREIGN KEY (transfer_id) REFERENCES stock_transfers(id) ON DELETE CASCADE,
     CONSTRAINT fk_sti_product FOREIGN KEY (product_id) REFERENCES products(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS stock_adjustments (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -306,7 +306,7 @@ CREATE TABLE IF NOT EXISTS stock_adjustments (
     CONSTRAINT fk_sa_company FOREIGN KEY (company_id) REFERENCES companies(id),
     CONSTRAINT fk_sa_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
     CONSTRAINT fk_sa_user FOREIGN KEY (created_by) REFERENCES users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS stock_adjustment_items (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -319,7 +319,7 @@ CREATE TABLE IF NOT EXISTS stock_adjustment_items (
     unit_cost DECIMAL(14, 4) NOT NULL,
     CONSTRAINT fk_sai_adjustment FOREIGN KEY (adjustment_id) REFERENCES stock_adjustments(id) ON DELETE CASCADE,
     CONSTRAINT fk_sai_product FOREIGN KEY (product_id) REFERENCES products(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 10. PURCHASING: SUPPLIERS, ORDERS, RECEIPTS
 CREATE TABLE IF NOT EXISTS suppliers (
@@ -338,7 +338,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_suppliers_company FOREIGN KEY (company_id) REFERENCES companies(id),
     UNIQUE KEY uk_supplier_company_tax (company_id, tax_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -360,7 +360,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     CONSTRAINT fk_po_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
     CONSTRAINT fk_po_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
     CONSTRAINT fk_po_user FOREIGN KEY (created_by) REFERENCES users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS purchase_order_items (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -374,7 +374,7 @@ CREATE TABLE IF NOT EXISTS purchase_order_items (
     total_cost DECIMAL(14, 4) NOT NULL,
     CONSTRAINT fk_poi_order FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
     CONSTRAINT fk_poi_product FOREIGN KEY (product_id) REFERENCES products(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS goods_receipts (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -389,7 +389,7 @@ CREATE TABLE IF NOT EXISTS goods_receipts (
     CONSTRAINT fk_gr_po FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id),
     CONSTRAINT fk_gr_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
     CONSTRAINT fk_gr_user FOREIGN KEY (created_by) REFERENCES users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS goods_receipt_items (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -400,7 +400,7 @@ CREATE TABLE IF NOT EXISTS goods_receipt_items (
     unit_cost DECIMAL(14, 4) NOT NULL,
     CONSTRAINT fk_gri_receipt FOREIGN KEY (goods_receipt_id) REFERENCES goods_receipts(id) ON DELETE CASCADE,
     CONSTRAINT fk_gri_product FOREIGN KEY (product_id) REFERENCES products(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 11. SALES & POS: CUSTOMERS, SESSIONS, ORDERS, INVOICES, PAYMENTS
 CREATE TABLE IF NOT EXISTS customers (
@@ -420,7 +420,7 @@ CREATE TABLE IF NOT EXISTS customers (
     deleted_at DATETIME(6) NULL,
     CONSTRAINT fk_customers_company FOREIGN KEY (company_id) REFERENCES companies(id),
     UNIQUE KEY uk_customer_company_doc (company_id, document_number)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS cashier_sessions (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -437,7 +437,7 @@ CREATE TABLE IF NOT EXISTS cashier_sessions (
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_cs_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
     CONSTRAINT fk_cs_user FOREIGN KEY (user_id) REFERENCES users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sales_orders (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -459,7 +459,7 @@ CREATE TABLE IF NOT EXISTS sales_orders (
     CONSTRAINT fk_so_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
     CONSTRAINT fk_so_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
     CONSTRAINT fk_so_user FOREIGN KEY (created_by) REFERENCES users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sales_order_items (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -473,7 +473,7 @@ CREATE TABLE IF NOT EXISTS sales_order_items (
     total_amount DECIMAL(14, 4) NOT NULL,
     CONSTRAINT fk_soi_order FOREIGN KEY (sales_order_id) REFERENCES sales_orders(id) ON DELETE CASCADE,
     CONSTRAINT fk_soi_product FOREIGN KEY (product_id) REFERENCES products(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS invoices (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -501,7 +501,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     CONSTRAINT fk_inv_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
     CONSTRAINT fk_inv_user FOREIGN KEY (created_by) REFERENCES users(id),
     UNIQUE KEY uk_invoice_series_number (branch_id, document_type, series, number)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS invoice_items (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -518,7 +518,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     total_amount DECIMAL(14, 4) NOT NULL,
     CONSTRAINT fk_ii_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
     CONSTRAINT fk_ii_product FOREIGN KEY (product_id) REFERENCES products(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS payments (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -529,7 +529,7 @@ CREATE TABLE IF NOT EXISTS payments (
     status VARCHAR(20) NOT NULL DEFAULT 'CONFIRMED',
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_pay_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS credit_notes (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -543,7 +543,7 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_cn_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id),
     CONSTRAINT fk_cn_user FOREIGN KEY (created_by) REFERENCES users(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 12. AUDIT LOGS (APPEND-ONLY)
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -561,6 +561,6 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     INDEX idx_audit_user (user_id),
     INDEX idx_audit_resource (resource_type, resource_id),
     INDEX idx_audit_date (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

@@ -14,6 +14,7 @@ import java.util.Optional;
 @Repository
 public interface ProductRepository extends JpaRepository<Product, Long> {
     Optional<Product> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Product> findByIdAndCompanyIdAndDeletedAtIsNull(Long id, Long companyId);
     Optional<Product> findByCompanyIdAndSkuAndDeletedAtIsNull(Long companyId, String sku);
     Optional<Product> findByCompanyIdAndSkuIgnoreCaseAndDeletedAtIsNull(Long companyId, String sku);
     Optional<Product> findByCompanyIdAndBarcodeAndDeletedAtIsNull(Long companyId, String barcode);
@@ -32,4 +33,8 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             Pageable pageable);
 
     List<Product> findTop10ByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long companyId);
+
+    long countByCategoryIdAndDeletedAtIsNull(Long categoryId);
+    long countByBrandIdAndDeletedAtIsNull(Long brandId);
+    long countByUnitIdAndDeletedAtIsNull(Long unitId);
 }

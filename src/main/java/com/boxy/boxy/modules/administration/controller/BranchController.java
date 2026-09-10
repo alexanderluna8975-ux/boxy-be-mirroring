@@ -10,12 +10,13 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
-@RequestMapping({"/api/v1/branches", "/api/v1/administration/branches", "/api/v1/administration/settings/branches"})
+@RequestMapping({"/api/v1/administration/branches", "/api/v1/administration/settings/branches", "/api/v1/branches"})
 @RequiredArgsConstructor
 @Tag(name = "Administration - Branches", description = "Endpoints for managing branches and physical locations")
 public class BranchController {
@@ -23,18 +24,21 @@ public class BranchController {
     private final BranchService branchService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('settings:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List all company branches")
     public ResponseEntity<ApiResponse<List<BranchDto>>> getAllBranches() {
         return ResponseEntity.ok(ApiResponse.ok(branchService.getAllBranches()));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('settings:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get branch details by ID")
     public ResponseEntity<ApiResponse<BranchDto>> getBranchById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(branchService.getBranchById(id)));
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('settings:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create a new branch")
     public ResponseEntity<ApiResponse<BranchDto>> createBranch(@Valid @RequestBody CreateBranchRequest request) {
         BranchDto created = branchService.createBranch(request);
@@ -42,6 +46,7 @@ public class BranchController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('settings:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Update branch by ID")
     public ResponseEntity<ApiResponse<BranchDto>> updateBranch(
             @PathVariable Long id,
@@ -50,6 +55,7 @@ public class BranchController {
     }
 
     @PatchMapping("/{id}/deactivate")
+    @PreAuthorize("hasAuthority('settings:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Toggle branch active status")
     public ResponseEntity<ApiResponse<BranchDto>> deactivateBranch(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(branchService.deactivateBranch(id)));

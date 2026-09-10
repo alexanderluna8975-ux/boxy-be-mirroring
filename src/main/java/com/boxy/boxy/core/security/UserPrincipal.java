@@ -21,9 +21,10 @@ public class UserPrincipal implements UserDetails {
     private final String password;
     private final String fullName;
     private final Long activeBranchId;
+    private final String status;
     private final Collection<? extends GrantedAuthority> authorities;
 
-    public static UserPrincipal create(Long id, Long companyId, String username, String email, String password, String fullName, Long activeBranchId, List<String> rolesAndPermissions) {
+    public static UserPrincipal create(Long id, Long companyId, String username, String email, String password, String fullName, Long activeBranchId, String status, List<String> rolesAndPermissions) {
         List<SimpleGrantedAuthority> authorities = rolesAndPermissions.stream()
                 .map(SimpleGrantedAuthority::new)
                 .toList();
@@ -36,6 +37,7 @@ public class UserPrincipal implements UserDetails {
                 .password(password)
                 .fullName(fullName)
                 .activeBranchId(activeBranchId)
+                .status(status)
                 .authorities(authorities)
                 .build();
     }
@@ -57,6 +59,6 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true;
+        return "ACTIVE".equalsIgnoreCase(status);
     }
 }

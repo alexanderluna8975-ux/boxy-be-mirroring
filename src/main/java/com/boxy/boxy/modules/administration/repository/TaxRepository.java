@@ -12,4 +12,5 @@ public interface TaxRepository extends JpaRepository<Tax, Long> {
     List<Tax> findByCompanyIdAndDeletedAtIsNull(Long companyId);
     Optional<Tax> findByCompanyIdAndIsDefaultTrueAndDeletedAtIsNull(Long companyId);
     Optional<Tax> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Tax> findByIdAndCompanyIdAndDeletedAtIsNull(Long id, Long companyId);
 }

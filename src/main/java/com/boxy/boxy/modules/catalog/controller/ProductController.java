@@ -66,6 +66,12 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.ok(productService.getProductById(id)));
     }
 
+    @GetMapping("/products/{id}/metrics")
+    @Operation(summary = "Get computed stock/value/margin metrics for a product's detail page")
+    public ResponseEntity<ApiResponse<ProductMetricsDto>> getProductMetrics(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(productService.getMetrics(id)));
+    }
+
     @PutMapping("/products/{id}")
     @Operation(summary = "Update an existing product")
     public ResponseEntity<ApiResponse<ProductDto>> updateProduct(
@@ -106,7 +112,7 @@ public class ProductController {
     }
 
     @PostMapping(value = "/products/import", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAuthority('inventory:write') or hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('products:create') or hasAuthority('inventory:write') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Import products, catalog or inventory from Excel or CSV file")
     public ResponseEntity<ApiResponse<ImportResultDto>> importProducts(
             @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
@@ -121,15 +127,84 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.ok(productService.getCategories()));
     }
 
+    @PostMapping("/categories")
+    @PreAuthorize("hasAuthority('products:create') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Create a product category")
+    public ResponseEntity<ApiResponse<CategoryDto>> createCategory(@Valid @RequestBody CategoryDto request) {
+        CategoryDto created = productService.createCategory(request);
+        return new ResponseEntity<>(ApiResponse.ok(created, "Category created successfully"), HttpStatus.CREATED);
+    }
+
+    @PutMapping("/categories/{id}")
+    @PreAuthorize("hasAuthority('products:update') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Update a product category")
+    public ResponseEntity<ApiResponse<CategoryDto>> updateCategory(@PathVariable Long id, @Valid @RequestBody CategoryDto request) {
+        return ResponseEntity.ok(ApiResponse.ok(productService.updateCategory(id, request), "Category updated successfully"));
+    }
+
+    @DeleteMapping("/categories/{id}")
+    @PreAuthorize("hasAuthority('products:delete') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Delete a product category (rejected if any product still uses it)")
+    public ResponseEntity<ApiResponse<Void>> deleteCategory(@PathVariable Long id) {
+        productService.deleteCategory(id);
+        return ResponseEntity.ok(ApiResponse.ok(null, "Category deleted successfully"));
+    }
+
     @GetMapping("/brands")
     @Operation(summary = "List all product brands")
     public ResponseEntity<ApiResponse<List<BrandDto>>> getBrands() {
         return ResponseEntity.ok(ApiResponse.ok(productService.getBrands()));
     }
 
+    @PostMapping("/brands")
+    @PreAuthorize("hasAuthority('products:create') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Create a product brand")
+    public ResponseEntity<ApiResponse<BrandDto>> createBrand(@Valid @RequestBody BrandDto request) {
+        BrandDto created = productService.createBrand(request);
+        return new ResponseEntity<>(ApiResponse.ok(created, "Brand created successfully"), HttpStatus.CREATED);
+    }
+
+    @PutMapping("/brands/{id}")
+    @PreAuthorize("hasAuthority('products:update') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Update a product brand")
+    public ResponseEntity<ApiResponse<BrandDto>> updateBrand(@PathVariable Long id, @Valid @RequestBody BrandDto request) {
+        return ResponseEntity.ok(ApiResponse.ok(productService.updateBrand(id, request), "Brand updated successfully"));
+    }
+
+    @DeleteMapping("/brands/{id}")
+    @PreAuthorize("hasAuthority('products:delete') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Delete a product brand (rejected if any product still uses it)")
+    public ResponseEntity<ApiResponse<Void>> deleteBrand(@PathVariable Long id) {
+        productService.deleteBrand(id);
+        return ResponseEntity.ok(ApiResponse.ok(null, "Brand deleted successfully"));
+    }
+
     @GetMapping("/units")
     @Operation(summary = "List all units of measure")
     public ResponseEntity<ApiResponse<List<UnitDto>>> getUnits() {
         return ResponseEntity.ok(ApiResponse.ok(productService.getUnits()));
+    }
+
+    @PostMapping("/units")
+    @PreAuthorize("hasAuthority('products:create') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Create a unit of measure")
+    public ResponseEntity<ApiResponse<UnitDto>> createUnit(@Valid @RequestBody UnitDto request) {
+        UnitDto created = productService.createUnit(request);
+        return new ResponseEntity<>(ApiResponse.ok(created, "Unit created successfully"), HttpStatus.CREATED);
+    }
+
+    @PutMapping("/units/{id}")
+    @PreAuthorize("hasAuthority('products:update') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Update a unit of measure")
+    public ResponseEntity<ApiResponse<UnitDto>> updateUnit(@PathVariable Long id, @Valid @RequestBody UnitDto request) {
+        return ResponseEntity.ok(ApiResponse.ok(productService.updateUnit(id, request), "Unit updated successfully"));
+    }
+
+    @DeleteMapping("/units/{id}")
+    @PreAuthorize("hasAuthority('products:delete') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Delete a unit of measure (rejected if any product still uses it)")
+    public ResponseEntity<ApiResponse<Void>> deleteUnit(@PathVariable Long id) {
+        productService.deleteUnit(id);
+        return ResponseEntity.ok(ApiResponse.ok(null, "Unit deleted successfully"));
     }
 }

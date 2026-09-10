@@ -2,17 +2,19 @@ package com.boxy.boxy.modules.administration.controller;
 
 import com.boxy.boxy.core.response.ApiResponse;
 import com.boxy.boxy.core.response.PageMeta;
+import com.boxy.boxy.core.web.PageableFactory;
 import com.boxy.boxy.modules.administration.dto.AuditLogDto;
-import com.boxy.boxy.modules.administration.service.TaxService;
+import com.boxy.boxy.modules.administration.service.AuditLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -23,12 +25,21 @@ import java.util.List;
 @Tag(name = "Administration - Audit Logs", description = "Endpoints for viewing system audit trail")
 public class AuditLogController {
 
-    private final TaxService taxService;
+    private final AuditLogService auditLogService;
 
     @GetMapping
-    @Operation(summary = "List system audit logs with pagination")
-    public ResponseEntity<ApiResponse<List<AuditLogDto>>> getAuditLogs(@PageableDefault(size = 20) Pageable pageable) {
-        Page<AuditLogDto> page = taxService.getAuditLogs(pageable);
-        return ResponseEntity.ok(ApiResponse.paged(page.getContent(), PageMeta.from(page)));
+    @PreAuthorize("hasAuthority('audit-logs:view') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "List system audit logs, paginated and filtered")
+    public ResponseEntity<ApiResponse<List<AuditLogDto>>> getAuditLogs(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, name = "filter.entity") String entity,
+            @RequestParam(required = false, name = "filter.dateFrom") String dateFrom,
+            @RequestParam(required = false, name = "filter.dateTo") String dateTo,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer pageSize) {
+        Pageable pageable = PageableFactory.of(page, limit, pageSize);
+        Page<AuditLogDto> result = auditLogService.getAuditLogs(search, entity, dateFrom, dateTo, pageable);
+        return ResponseEntity.ok(ApiResponse.paged(result.getContent(), PageMeta.from(result)));
     }
 }
