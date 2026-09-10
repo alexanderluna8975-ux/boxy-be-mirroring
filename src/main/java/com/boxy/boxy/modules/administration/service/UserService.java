@@ -20,8 +20,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -92,7 +94,11 @@ public class UserService {
                 .build();
 
         if (request.getBranchAssignments() != null) {
+            Set<Long> seenBranchIds = new HashSet<>();
             for (var assignReq : request.getBranchAssignments()) {
+                if (assignReq.getBranchId() == null || !seenBranchIds.add(assignReq.getBranchId())) {
+                    continue;
+                }
                 Branch branch = branchRepository.findByIdAndDeletedAtIsNull(assignReq.getBranchId())
                         .orElseThrow(() -> new ResourceNotFoundException("Branch", assignReq.getBranchId()));
                 Role role = roleRepository.findById(assignReq.getRoleId())
@@ -129,7 +135,13 @@ public class UserService {
 
         if (request.getBranchAssignments() != null && !request.getBranchAssignments().isEmpty()) {
             user.getBranchRoles().clear();
+            userRepository.saveAndFlush(user);
+
+            Set<Long> seenBranchIds = new HashSet<>();
             for (var assignReq : request.getBranchAssignments()) {
+                if (assignReq.getBranchId() == null || !seenBranchIds.add(assignReq.getBranchId())) {
+                    continue;
+                }
                 Branch branch = branchRepository.findByIdAndDeletedAtIsNull(assignReq.getBranchId())
                         .orElseThrow(() -> new ResourceNotFoundException("Branch", assignReq.getBranchId()));
                 Role role = roleRepository.findById(assignReq.getRoleId())

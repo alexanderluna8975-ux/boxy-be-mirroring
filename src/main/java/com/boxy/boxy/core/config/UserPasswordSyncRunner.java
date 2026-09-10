@@ -23,10 +23,12 @@ public class UserPasswordSyncRunner implements ApplicationRunner {
     @Transactional
     public void run(ApplicationArguments args) {
         try {
+            List<String> seedUsernames = List.of("superadmin", "admin", "seller", "warehouse", "cashier");
             List<User> users = userRepository.findAll();
             int updated = 0;
             for (User user : users) {
-                if (!DEFAULT_PASSWORD_HASH.equals(user.getPasswordHash())) {
+                boolean isSeedUser = seedUsernames.contains(user.getUsername()) || (user.getId() != null && user.getId() <= 4);
+                if ((isSeedUser || user.getPasswordHash() == null) && !DEFAULT_PASSWORD_HASH.equals(user.getPasswordHash())) {
                     user.setPasswordHash(DEFAULT_PASSWORD_HASH);
                     userRepository.save(user);
                     updated++;
