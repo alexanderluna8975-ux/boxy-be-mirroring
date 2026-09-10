@@ -120,6 +120,7 @@ public class BranchService {
                 .email(branch.getEmail())
                 .isMain(Boolean.TRUE.equals(branch.getIsMain()))
                 .isActive(Boolean.TRUE.equals(branch.getIsActive()))
+                .status(Boolean.TRUE.equals(branch.getIsActive()) ? "active" : "inactive")
                 .warehouses(warehouseDtos)
                 .createdAt(branch.getCreatedAt())
                 .build();

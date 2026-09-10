@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping({"/api/v1/administration/branches", "/api/v1/administration/settings/branches"})
+@RequestMapping({"/api/v1/branches", "/api/v1/administration/branches", "/api/v1/administration/settings/branches"})
 @RequiredArgsConstructor
 @Tag(name = "Administration - Branches", description = "Endpoints for managing branches and physical locations")
 public class BranchController {

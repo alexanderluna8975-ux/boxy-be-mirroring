@@ -21,6 +21,7 @@ public class BranchDto {
     private String email;
     private boolean isMain;
     private boolean isActive;
+    private String status;
     private List<WarehouseDto> warehouses;
     private Instant createdAt;
 }

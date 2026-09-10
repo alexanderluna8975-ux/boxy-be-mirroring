@@ -22,7 +22,8 @@ VALUES (1, 1, 'WH-MAIN', 'Almacén Central', TRUE, TRUE);
 -- Plain Password: SuperAdmin#2026!Secured$
 -- BCrypt Hash: $2a$10$h0Is2./h5f3A2qlm33GhgOQmD17BaCIJLQ3.T5ptXdfwsnFr9L3gi
 INSERT INTO users (id, company_id, username, email, password_hash, first_name, last_name, status)
-VALUES (1, 1, 'superadmin', 'superadmin@boxy.com', '$2a$12$4Lfob5hG5Z.lDrlUr7PFV.y3lwyoNCh8NIodWBus9zpW2El4Qlo7O', 'Super', 'Admin', 'ACTIVE');
+VALUES (1, 1, 'superadmin', '' ||
+                            '', '$2a$12$4Lfob5hG5Z.lDrlUr7PFV.y3lwyoNCh8NIodWBus9zpW2El4Qlo7O', 'Super', 'Admin', 'ACTIVE');
 
 -- 5. SEED SYSTEM PERMISSIONS
 INSERT INTO permissions (id, module, action, code, description)
