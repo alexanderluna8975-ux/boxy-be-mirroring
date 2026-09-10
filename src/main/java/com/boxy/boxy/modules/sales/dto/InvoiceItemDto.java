@@ -1,0 +1,27 @@
+package com.boxy.boxy.modules.sales.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.math.BigDecimal;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class InvoiceItemDto {
+    private Long id;
+    private Long productId;
+    private String sku;
+    private String productName;
+    private String name;
+    private BigDecimal quantity;
+    private BigDecimal unitPrice;
+    private BigDecimal unitCost;
+    private BigDecimal discountAmount;
+    private BigDecimal taxAmount;
+    private BigDecimal totalAmount;
+    private BigDecimal lineTotal;
+}
