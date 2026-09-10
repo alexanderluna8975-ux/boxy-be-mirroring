@@ -39,9 +39,10 @@ public class StockTransfer {
     @JoinColumn(name = "destination_warehouse_id", nullable = false)
     private Warehouse destinationWarehouse;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     @Builder.Default
-    private String status = "DRAFT"; // DRAFT, REQUESTED, IN_TRANSIT, RECEIVED, REJECTED, CANCELLED
+    private TransferStatus status = TransferStatus.REQUESTED;
 
     @Column(length = 500)
     private String notes;
@@ -49,6 +50,12 @@ public class StockTransfer {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "requested_by", nullable = false)
     private User requestedBy;
+
+    @Column(name = "approved_by")
+    private Long approvedBy;
+
+    @Column(name = "approved_at")
+    private Instant approvedAt;
 
     @Column(name = "dispatched_by")
     private Long dispatchedBy;

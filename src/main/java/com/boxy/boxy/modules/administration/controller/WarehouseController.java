@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -22,19 +23,24 @@ public class WarehouseController {
 
     private final WarehouseService warehouseService;
 
+    // Reachable from both the inventory and the administration → settings screens, so either
+    // permission unlocks it — an inventory:view holder shouldn't need settings:view too.
     @GetMapping
+    @PreAuthorize("hasAuthority('inventory:view') or hasAuthority('settings:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List all company warehouses")
     public ResponseEntity<ApiResponse<List<WarehouseDto>>> getAllWarehouses() {
         return ResponseEntity.ok(ApiResponse.ok(warehouseService.getAllWarehouses()));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('inventory:view') or hasAuthority('settings:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get warehouse details by ID")
     public ResponseEntity<ApiResponse<WarehouseDto>> getWarehouseById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(warehouseService.getWarehouseById(id)));
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('inventory:create') or hasAuthority('settings:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create a new warehouse")
     public ResponseEntity<ApiResponse<WarehouseDto>> createWarehouse(@Valid @RequestBody CreateWarehouseRequest request) {
         WarehouseDto created = warehouseService.createWarehouse(request);
@@ -42,6 +48,7 @@ public class WarehouseController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('inventory:update') or hasAuthority('settings:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Update an existing warehouse")
     public ResponseEntity<ApiResponse<WarehouseDto>> updateWarehouse(
             @PathVariable Long id,

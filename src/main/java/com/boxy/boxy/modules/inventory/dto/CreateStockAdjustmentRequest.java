@@ -35,5 +35,17 @@ public class CreateStockAdjustmentRequest {
 
         @JsonAlias({"quantityDelta", "differenceQuantity", "quantity"})
         private BigDecimal quantityDelta;
+
+        /**
+         * The stock on record at count time and what the user physically counted.
+         * Optional — when omitted, both are derived from the live stock level at
+         * creation time (as before). When provided, they're stored as-is so the
+         * adjustment's audit trail reflects what was actually counted, even if the
+         * live stock has since moved.
+         */
+        private BigDecimal previousQuantity;
+
+        @JsonAlias({"countedQuantity", "newQuantity"})
+        private BigDecimal countedQuantity;
     }
 }

@@ -2,6 +2,7 @@ package com.boxy.boxy.modules.auth.controller;
 
 import com.boxy.boxy.core.response.ApiResponse;
 import com.boxy.boxy.core.security.SecurityUtils;
+import com.boxy.boxy.modules.auth.dto.ChangePasswordRequest;
 import com.boxy.boxy.modules.auth.dto.LoginRequest;
 import com.boxy.boxy.modules.auth.dto.LoginResponse;
 import com.boxy.boxy.modules.auth.dto.RefreshTokenRequest;
@@ -39,8 +40,16 @@ public class AuthController {
     @GetMapping("/me")
     @Operation(summary = "Get currently authenticated user profile")
     public ResponseEntity<ApiResponse<UserProfileDto>> getCurrentUser() {
-        Long userId = SecurityUtils.getCurrentUserId();
+        Long userId = SecurityUtils.requireCurrentUserId();
         UserProfileDto profile = authService.getProfile(userId);
         return ResponseEntity.ok(ApiResponse.ok(profile));
+    }
+
+    @PostMapping("/change-password")
+    @Operation(summary = "Change the current user's own password (requires the current password)")
+    public ResponseEntity<ApiResponse<Void>> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        Long userId = SecurityUtils.requireCurrentUserId();
+        authService.changePassword(userId, request);
+        return ResponseEntity.ok(ApiResponse.ok(null, "Password updated successfully"));
     }
 }

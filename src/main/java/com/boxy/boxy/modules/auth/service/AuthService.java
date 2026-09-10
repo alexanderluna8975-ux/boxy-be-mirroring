@@ -7,12 +7,16 @@ import com.boxy.boxy.core.security.UserPrincipal;
 import com.boxy.boxy.modules.administration.entity.User;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.auth.dto.BranchAssignmentDto;
+import com.boxy.boxy.modules.auth.dto.ChangePasswordRequest;
 import com.boxy.boxy.modules.auth.dto.LoginRequest;
 import com.boxy.boxy.modules.auth.dto.LoginResponse;
 import com.boxy.boxy.modules.auth.dto.UserProfileDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +31,7 @@ public class AuthService {
     private final JwtTokenProvider tokenProvider;
     private final CustomUserDetailsService userDetailsService;
     private final UserRepository userRepository;
+    private final AuthenticationManager authenticationManager;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${app.jwt.expiration-ms:1800000}")
@@ -34,17 +39,13 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public LoginResponse login(LoginRequest request) {
-        UserPrincipal userPrincipal = (UserPrincipal) userDetailsService.loadUserByUsername(request.getUsername());
-
-        log.info("Attempting login for user: {}, db password hash: {}", userPrincipal.getUsername(), userPrincipal.getPassword());
-        boolean matches = passwordEncoder.matches(request.getPassword(), userPrincipal.getPassword());
-        log.info("Password matches result: {}", matches);
-
-        if (!matches) {
-            String freshHash = passwordEncoder.encode(request.getPassword());
-            log.info("Generated fresh BCrypt hash for '{}': {}", request.getPassword(), freshHash);
-            throw new BusinessException("INVALID_CREDENTIALS", "Invalid username or password.");
-        }
+        // Delegates to the configured AuthenticationProvider (DaoAuthenticationProvider),
+        // which checks the password AND UserDetails.isEnabled()/isAccountNonLocked()/etc. —
+        // a deactivated user (status != ACTIVE) is rejected here with DisabledException
+        // instead of being able to log in like before.
+        var authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
 
         String token = tokenProvider.generateToken(userPrincipal);
         String refreshToken = tokenProvider.generateRefreshToken(userPrincipal);
@@ -79,6 +80,19 @@ public class AuthService {
                 .expiresIn(jwtExpirationMs / 1000)
                 .user(getProfile(userId))
                 .build();
+    }
+
+    @Transactional
+    public void changePassword(Long userId, ChangePasswordRequest request) {
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(() -> new BusinessException("USER_NOT_FOUND", "User not found"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new BadCredentialsException("Current password is incorrect.");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
     }
 
     @Transactional(readOnly = true)

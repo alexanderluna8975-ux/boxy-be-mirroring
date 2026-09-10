@@ -14,7 +14,13 @@ public class CategoryDto {
     private Long id;
     private Long parentId;
     private String code;
+
+    @NotBlank(message = "Name is required")
     private String name;
+
     private String description;
     private boolean isActive;
+
+    /** How many non-deleted products currently use this category — the delete guard checks this too. */
+    private long productCount;
 }

@@ -11,5 +11,6 @@ import java.util.Optional;
 public interface BranchRepository extends JpaRepository<Branch, Long> {
     List<Branch> findByCompanyIdAndDeletedAtIsNull(Long companyId);
     Optional<Branch> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Branch> findByIdAndCompanyIdAndDeletedAtIsNull(Long id, Long companyId);
     Optional<Branch> findByCompanyIdAndCodeAndDeletedAtIsNull(Long companyId, String code);
 }

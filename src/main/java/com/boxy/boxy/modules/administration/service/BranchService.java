@@ -25,10 +25,11 @@ public class BranchService {
     private final BranchRepository branchRepository;
     private final WarehouseRepository warehouseRepository;
     private final CompanyRepository companyRepository;
+    private final AuditLogService auditLogService;
 
     @Transactional(readOnly = true)
     public List<BranchDto> getAllBranches() {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         return branchRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(this::toDto)
                 .toList();
@@ -36,24 +37,23 @@ public class BranchService {
 
     @Transactional(readOnly = true)
     public BranchDto getBranchById(Long id) {
-        Branch branch = branchRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Branch", id));
-        return toDto(branch);
+        return toDto(findOwnedBranch(id));
     }
 
     @Transactional
     public BranchDto createBranch(CreateBranchRequest request) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
-        if (branchRepository.findByCompanyIdAndCodeAndDeletedAtIsNull(companyId, request.getCode()).isPresent()) {
-            throw new BusinessException("BRANCH_CODE_EXISTS", "A branch with code '" + request.getCode() + "' already exists.");
+        String code = request.getCode().toUpperCase();
+        if (branchRepository.findByCompanyIdAndCodeAndDeletedAtIsNull(companyId, code).isPresent()) {
+            throw new BusinessException("BRANCH_CODE_EXISTS", "A branch with code '" + code + "' already exists.");
         }
 
         Branch branch = Branch.builder()
                 .company(company)
-                .code(request.getCode().toUpperCase())
+                .code(code)
                 .name(request.getName())
                 .address(request.getAddress())
                 .phone(request.getPhone())
@@ -74,29 +74,59 @@ public class BranchService {
                 .build();
         warehouseRepository.save(defaultWarehouse);
 
+        auditLogService.record("Sucursal creada", "Sucursal", String.valueOf(savedBranch.getId()), savedBranch.getName(),
+                null, "código: " + savedBranch.getCode());
         return toDto(savedBranch);
     }
 
     @Transactional
     public BranchDto updateBranch(Long id, CreateBranchRequest request) {
-        Branch branch = branchRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Branch", id));
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        Branch branch = findOwnedBranch(id);
+        String previous = describeBranch(branch);
 
         if (request.getName() != null) branch.setName(request.getName());
-        if (request.getCode() != null) branch.setCode(request.getCode().toUpperCase());
+        if (request.getCode() != null) {
+            String code = request.getCode().toUpperCase();
+            if (!code.equalsIgnoreCase(branch.getCode())) {
+                branchRepository.findByCompanyIdAndCodeAndDeletedAtIsNull(companyId, code).ifPresent(existing -> {
+                    throw new BusinessException("BRANCH_CODE_EXISTS", "A branch with code '" + code + "' already exists.");
+                });
+                branch.setCode(code);
+            }
+        }
         if (request.getAddress() != null) branch.setAddress(request.getAddress());
         if (request.getPhone() != null) branch.setPhone(request.getPhone());
         if (request.getEmail() != null) branch.setEmail(request.getEmail());
 
-        return toDto(branchRepository.save(branch));
+        Branch saved = branchRepository.save(branch);
+        auditLogService.record("Sucursal actualizada", "Sucursal", String.valueOf(saved.getId()), saved.getName(),
+                previous, describeBranch(saved));
+        return toDto(saved);
     }
 
     @Transactional
     public BranchDto deactivateBranch(Long id) {
-        Branch branch = branchRepository.findByIdAndDeletedAtIsNull(id)
+        Branch branch = findOwnedBranch(id);
+        boolean wasActive = Boolean.TRUE.equals(branch.getIsActive());
+        branch.setIsActive(!wasActive);
+        Branch saved = branchRepository.save(branch);
+        auditLogService.record(wasActive ? "Sucursal desactivada" : "Sucursal activada", "Sucursal",
+                String.valueOf(saved.getId()), saved.getName(),
+                wasActive ? "active" : "inactive", wasActive ? "inactive" : "active");
+        return toDto(saved);
+    }
+
+    /** 404s (not 403) on a branch belonging to another company — same treatment as "doesn't exist". */
+    private Branch findOwnedBranch(Long id) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return branchRepository.findByIdAndCompanyIdAndDeletedAtIsNull(id, companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Branch", id));
-        branch.setIsActive(!Boolean.TRUE.equals(branch.getIsActive()));
-        return toDto(branchRepository.save(branch));
+    }
+
+    private String describeBranch(Branch branch) {
+        return "nombre: " + branch.getName() + "\ncódigo: " + branch.getCode()
+                + "\ndirección: " + (branch.getAddress() != null ? branch.getAddress() : "");
     }
 
     private BranchDto toDto(Branch branch) {
@@ -111,6 +141,7 @@ public class BranchService {
                         .build())
                 .toList();
 
+        boolean active = Boolean.TRUE.equals(branch.getIsActive());
         return BranchDto.builder()
                 .id(branch.getId())
                 .code(branch.getCode())
@@ -119,10 +150,11 @@ public class BranchService {
                 .phone(branch.getPhone())
                 .email(branch.getEmail())
                 .isMain(Boolean.TRUE.equals(branch.getIsMain()))
-                .isActive(Boolean.TRUE.equals(branch.getIsActive()))
-                .status(Boolean.TRUE.equals(branch.getIsActive()) ? "active" : "inactive")
+                .isActive(active)
+                .status(active ? "active" : "inactive")
                 .warehouses(warehouseDtos)
                 .createdAt(branch.getCreatedAt())
+                .updatedAt(branch.getUpdatedAt())
                 .build();
     }
 }

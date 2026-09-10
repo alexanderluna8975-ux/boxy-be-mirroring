@@ -50,6 +50,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 user.getPasswordHash(),
                 user.getFullName(),
                 defaultBranchId,
+                user.getStatus(),
                 rolesAndPermissions
         );
     }

@@ -2,6 +2,7 @@ package com.boxy.boxy.modules.inventory.controller;
 
 import com.boxy.boxy.core.response.ApiResponse;
 import com.boxy.boxy.core.response.PageMeta;
+import com.boxy.boxy.core.web.PageableFactory;
 import com.boxy.boxy.modules.inventory.dto.*;
 import com.boxy.boxy.modules.inventory.service.InventoryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -9,7 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,7 +28,7 @@ public class InventoryController {
     private final com.boxy.boxy.modules.catalog.service.InventoryImportService inventoryImportService;
 
     @PostMapping(value = "/stock/import", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAuthority('inventory:write') or hasAuthority('ROLE_SUPER_ADMIN') or hasAuthority('ROLE_ADMIN')")
+    @PreAuthorize("hasAuthority('inventory:create') or hasAuthority('inventory:write') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Import warehouse inventory stock levels from Excel or CSV file")
     public ResponseEntity<ApiResponse<com.boxy.boxy.modules.catalog.dto.ImportResultDto>> importStock(
             @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
@@ -37,66 +38,92 @@ public class InventoryController {
     }
 
     @GetMapping("/warehouses/{warehouseId}/stock")
+    @PreAuthorize("hasAuthority('inventory:view') or hasAuthority('inventory:read') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get current stock levels for a specific warehouse")
     public ResponseEntity<ApiResponse<List<StockLevelDto>>> getStockLevels(@PathVariable Long warehouseId) {
         return ResponseEntity.ok(ApiResponse.ok(inventoryService.getStockLevelsByWarehouse(warehouseId)));
     }
 
     @GetMapping("/warehouses/{warehouseId}/movements")
+    @PreAuthorize("hasAuthority('inventory:view') or hasAuthority('inventory:read') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get paginated Kardex movements by warehouse")
     public ResponseEntity<ApiResponse<List<StockMovementDto>>> getMovementsByWarehouse(
             @PathVariable Long warehouseId,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int limit) {
-        Page<StockMovementDto> paged = inventoryService.getMovementsByWarehouse(warehouseId, PageRequest.of(page - 1, limit));
-        PageMeta meta = PageMeta.of(page, limit, paged.getTotalElements());
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer pageSize) {
+        Pageable pageable = PageableFactory.of(page, limit, pageSize);
+        Page<StockMovementDto> paged = inventoryService.getMovementsByWarehouse(warehouseId, pageable);
+        PageMeta meta = PageMeta.from(paged);
         return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), meta));
     }
 
     @GetMapping("/products/{productId}/movements")
+    @PreAuthorize("hasAuthority('inventory:view') or hasAuthority('inventory:read') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get paginated Kardex movements for a specific product across all warehouses")
     public ResponseEntity<ApiResponse<List<StockMovementDto>>> getMovementsByProduct(
             @PathVariable Long productId,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int limit) {
-        Page<StockMovementDto> paged = inventoryService.getMovementsByProduct(productId, PageRequest.of(page - 1, limit));
-        PageMeta meta = PageMeta.of(page, limit, paged.getTotalElements());
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer pageSize) {
+        Pageable pageable = PageableFactory.of(page, limit, pageSize);
+        Page<StockMovementDto> paged = inventoryService.getMovementsByProduct(productId, pageable);
+        PageMeta meta = PageMeta.from(paged);
         return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), meta));
     }
 
     @GetMapping("/movements")
-    @Operation(summary = "Get all inventory Kardex movements with optional warehouse and product filters")
+    @PreAuthorize("hasAuthority('inventory:view') or hasAuthority('inventory:read') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Get all inventory Kardex movements with optional warehouse, product, type and date filters")
     public ResponseEntity<ApiResponse<List<StockMovementDto>>> getAllMovements(
             @RequestParam(required = false) Long warehouseId,
             @RequestParam(required = false) Long productId,
+            @RequestParam(required = false, name = "filter.warehouseId") Long filterWarehouseId,
+            @RequestParam(required = false, name = "filter.productId") Long filterProductId,
+            @RequestParam(required = false, name = "filter.type") String type,
+            @RequestParam(required = false, name = "filter.dateFrom") String dateFrom,
+            @RequestParam(required = false, name = "filter.dateTo") String dateTo,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int limit,
-            @RequestParam(defaultValue = "20") int pageSize) {
-        int finalLimit = Math.max(limit, pageSize);
-        Page<StockMovementDto> paged = inventoryService.getAllMovements(warehouseId, productId, PageRequest.of(page - 1, finalLimit));
-        PageMeta meta = PageMeta.of(page, finalLimit, paged.getTotalElements());
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer pageSize) {
+        Pageable pageable = PageableFactory.of(page, limit, pageSize);
+        Long effectiveWarehouseId = warehouseId != null ? warehouseId : filterWarehouseId;
+        Long effectiveProductId = productId != null ? productId : filterProductId;
+        Page<StockMovementDto> paged = inventoryService.getAllMovements(
+                effectiveWarehouseId, effectiveProductId, type, dateFrom, dateTo, pageable);
+        PageMeta meta = PageMeta.from(paged);
         return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), meta));
     }
 
     @GetMapping("/transfers")
-    @Operation(summary = "List all inventory transfers paginated")
+    @PreAuthorize("hasAuthority('transfers:view') or hasAuthority('inventory:read') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "List all inventory transfers paginated, with search, status, warehouse and date filters")
     public ResponseEntity<ApiResponse<List<StockTransferDto>>> getTransfers(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, name = "filter.status") String status,
+            @RequestParam(required = false, name = "filter.originWarehouseId") Long originWarehouseId,
+            @RequestParam(required = false, name = "filter.destinationWarehouseId") Long destinationWarehouseId,
+            @RequestParam(required = false, name = "filter.dateFrom") String dateFrom,
+            @RequestParam(required = false, name = "filter.dateTo") String dateTo,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int limit,
-            @RequestParam(defaultValue = "20") int pageSize) {
-        int finalLimit = Math.max(limit, pageSize);
-        Page<StockTransferDto> paged = inventoryService.getAllTransfers(PageRequest.of(page - 1, finalLimit));
-        PageMeta meta = PageMeta.of(page, finalLimit, paged.getTotalElements());
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer pageSize) {
+        Pageable pageable = PageableFactory.of(page, limit, pageSize);
+        Page<StockTransferDto> paged = inventoryService.getAllTransfers(
+                search, status, originWarehouseId, destinationWarehouseId, dateFrom, dateTo, pageable);
+        PageMeta meta = PageMeta.from(paged);
         return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), meta));
     }
 
     @GetMapping("/transfers/{id}")
+    @PreAuthorize("hasAuthority('transfers:view') or hasAuthority('inventory:read') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get inventory transfer by ID")
     public ResponseEntity<ApiResponse<StockTransferDto>> getTransferById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(inventoryService.getTransferById(id)));
     }
 
     @PostMapping("/transfers")
+    @PreAuthorize("hasAuthority('transfers:create') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create an inter-warehouse / inter-branch stock transfer request")
     public ResponseEntity<ApiResponse<StockTransferDto>> createTransfer(@Valid @RequestBody CreateStockTransferRequest request) {
         StockTransferDto created = inventoryService.createTransfer(request);
@@ -104,27 +131,29 @@ public class InventoryController {
     }
 
     @PatchMapping({"/transfers/{id}/approve"})
+    @PreAuthorize("hasAuthority('transfers:approve') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Approve requested transfer")
     public ResponseEntity<ApiResponse<StockTransferDto>> approveTransfer(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(inventoryService.approveTransfer(id)));
     }
 
     @PatchMapping({"/transfers/{id}/reject"})
+    @PreAuthorize("hasAuthority('transfers:approve') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Reject requested transfer")
     public ResponseEntity<ApiResponse<StockTransferDto>> rejectTransfer(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(inventoryService.rejectTransfer(id)));
     }
 
-    @PatchMapping({"/transfers/{id}/ship"})
-    @PostMapping("/transfers/{id}/dispatch")
+    @PatchMapping("/transfers/{id}/ship")
+    @PreAuthorize("hasAuthority('transfers:update') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Ship/dispatch requested transfer (locks and deducts stock from origin)")
     public ResponseEntity<ApiResponse<StockTransferDto>> dispatchTransfer(@PathVariable Long id) {
         StockTransferDto dispatched = inventoryService.dispatchTransfer(id);
         return ResponseEntity.ok(ApiResponse.ok(dispatched, "Transfer dispatched and in transit"));
     }
 
-    @PatchMapping({"/transfers/{id}/receive"})
-    @PostMapping("/transfers/{id}/receive")
+    @PatchMapping("/transfers/{id}/receive")
+    @PreAuthorize("hasAuthority('transfers:receive') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Receive transferred items into destination warehouse")
     public ResponseEntity<ApiResponse<StockTransferDto>> receiveTransfer(@PathVariable Long id) {
         StockTransferDto received = inventoryService.receiveTransfer(id);

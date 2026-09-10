@@ -2,6 +2,7 @@ package com.boxy.boxy.modules.administration.service;
 
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
+import com.boxy.boxy.core.security.SecurityUtils;
 import com.boxy.boxy.modules.administration.dto.CreateWarehouseRequest;
 import com.boxy.boxy.modules.administration.dto.WarehouseDto;
 import com.boxy.boxy.modules.administration.entity.Branch;
@@ -23,53 +24,70 @@ public class WarehouseService {
     private final WarehouseRepository warehouseRepository;
     private final BranchRepository branchRepository;
     private final StockLevelRepository stockLevelRepository;
+    private final AuditLogService auditLogService;
 
     @Transactional(readOnly = true)
     public List<WarehouseDto> getAllWarehouses() {
-        return warehouseRepository.findAll().stream()
-                .filter(w -> w.getDeletedAt() == null)
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return warehouseRepository.findByBranchCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(this::toDto)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public WarehouseDto getWarehouseById(Long id) {
-        Warehouse warehouse = warehouseRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Warehouse", id));
-        return toDto(warehouse);
+        return toDto(findOwnedWarehouse(id));
     }
 
     @Transactional
     public WarehouseDto createWarehouse(CreateWarehouseRequest request) {
-        Branch branch = branchRepository.findByIdAndDeletedAtIsNull(request.getBranchId())
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        Branch branch = branchRepository.findByIdAndCompanyIdAndDeletedAtIsNull(request.getBranchId(), companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Branch", request.getBranchId()));
+
+        String code = request.getCode().trim().toUpperCase();
+        warehouseRepository.findByBranchCompanyIdAndCodeIgnoreCaseAndDeletedAtIsNull(companyId, code)
+                .ifPresent(existing -> {
+                    throw new BusinessException("WAREHOUSE_CODE_EXISTS", "A warehouse with code '" + code + "' already exists.");
+                });
 
         boolean active = request.getStatus() == null || "active".equalsIgnoreCase(request.getStatus());
 
         Warehouse warehouse = Warehouse.builder()
                 .branch(branch)
-                .code(request.getCode().trim().toUpperCase())
+                .code(code)
                 .name(request.getName().trim())
                 .isDefault(Boolean.TRUE.equals(request.getIsDefault()))
                 .isActive(active)
                 .build();
 
-        return toDto(warehouseRepository.save(warehouse));
+        Warehouse saved = warehouseRepository.save(warehouse);
+        auditLogService.record("Almacén creado", "Almacén", String.valueOf(saved.getId()), saved.getName(),
+                null, "código: " + saved.getCode());
+        return toDto(saved);
     }
 
     @Transactional
     public WarehouseDto updateWarehouse(Long id, CreateWarehouseRequest request) {
-        Warehouse warehouse = warehouseRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Warehouse", id));
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        Warehouse warehouse = findOwnedWarehouse(id);
+        String previous = describeWarehouse(warehouse);
 
         if (request.getBranchId() != null && !request.getBranchId().equals(warehouse.getBranch().getId())) {
-            Branch branch = branchRepository.findByIdAndDeletedAtIsNull(request.getBranchId())
+            Branch branch = branchRepository.findByIdAndCompanyIdAndDeletedAtIsNull(request.getBranchId(), companyId)
                     .orElseThrow(() -> new ResourceNotFoundException("Branch", request.getBranchId()));
             warehouse.setBranch(branch);
         }
 
         if (request.getCode() != null) {
-            warehouse.setCode(request.getCode().trim().toUpperCase());
+            String code = request.getCode().trim().toUpperCase();
+            if (!code.equalsIgnoreCase(warehouse.getCode())) {
+                warehouseRepository.findByBranchCompanyIdAndCodeIgnoreCaseAndDeletedAtIsNull(companyId, code)
+                        .ifPresent(existing -> {
+                            throw new BusinessException("WAREHOUSE_CODE_EXISTS", "A warehouse with code '" + code + "' already exists.");
+                        });
+                warehouse.setCode(code);
+            }
         }
         if (request.getName() != null) {
             warehouse.setName(request.getName().trim());
@@ -81,19 +99,29 @@ public class WarehouseService {
             warehouse.setIsDefault(request.getIsDefault());
         }
 
-        return toDto(warehouseRepository.save(warehouse));
+        Warehouse saved = warehouseRepository.save(warehouse);
+        auditLogService.record("Almacén actualizado", "Almacén", String.valueOf(saved.getId()), saved.getName(),
+                previous, describeWarehouse(saved));
+        return toDto(saved);
+    }
+
+    /** 404s (not 403) on a warehouse belonging to another company — same treatment as "doesn't exist". */
+    private Warehouse findOwnedWarehouse(Long id) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return warehouseRepository.findByIdAndBranchCompanyIdAndDeletedAtIsNull(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Warehouse", id));
+    }
+
+    private String describeWarehouse(Warehouse w) {
+        return "nombre: " + w.getName() + "\ncódigo: " + w.getCode()
+                + "\nactivo: " + Boolean.TRUE.equals(w.getIsActive());
     }
 
     public WarehouseDto toDto(Warehouse w) {
         boolean active = Boolean.TRUE.equals(w.getIsActive());
         Branch branch = w.getBranch();
-        int productCount = 0;
-        BigDecimal stockValue = BigDecimal.ZERO;
-        try {
-            productCount = stockLevelRepository.countDistinctProductsByWarehouseId(w.getId());
-            stockValue = stockLevelRepository.calculateStockValueByWarehouseId(w.getId());
-        } catch (Exception ignored) {
-        }
+        int productCount = stockLevelRepository.countDistinctProductsByWarehouseId(w.getId());
+        BigDecimal stockValue = stockLevelRepository.calculateStockValueByWarehouseId(w.getId());
 
         return WarehouseDto.builder()
                 .id(w.getId())

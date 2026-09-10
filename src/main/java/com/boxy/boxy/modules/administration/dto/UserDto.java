@@ -1,7 +1,5 @@
 package com.boxy.boxy.modules.administration.dto;
 
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -24,4 +22,5 @@ public class UserDto {
     private String status;
     private List<UserBranchAssignmentDto> branchAssignments;
     private Instant createdAt;
+    private Instant updatedAt;
 }
