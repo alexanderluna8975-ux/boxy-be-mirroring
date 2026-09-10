@@ -24,7 +24,9 @@ public class Supplier {
     @JoinColumn(name = "company_id", nullable = false)
     private Company company;
 
-    @Column(name = "tax_id", nullable = false, length = 50)
+    // Optional since the supplier form dropped the RFC field (V9); the unique
+    // key (company_id, tax_id) still holds — MariaDB allows multiple NULLs.
+    @Column(name = "tax_id", length = 50)
     private String taxId;
 
     @Column(nullable = false, length = 150)
