@@ -79,7 +79,7 @@ public class PurchasingService {
 
         Supplier supplier = Supplier.builder()
                 .company(company)
-                .taxId(request.getTaxId().trim())
+                .taxId(normalizeTaxId(request.getTaxId()))
                 .name(request.getName().trim())
                 .contactName(request.getContactName())
                 .email(request.getEmail())
@@ -98,7 +98,7 @@ public class PurchasingService {
                 .orElseThrow(() -> new ResourceNotFoundException("Supplier", id));
 
         if (request.getName() != null) s.setName(request.getName().trim());
-        if (request.getTaxId() != null) s.setTaxId(request.getTaxId().trim());
+        if (request.getTaxId() != null) s.setTaxId(normalizeTaxId(request.getTaxId()));
         if (request.getContactName() != null) s.setContactName(request.getContactName());
         if (request.getEmail() != null) s.setEmail(request.getEmail());
         if (request.getPhone() != null) s.setPhone(request.getPhone());
@@ -371,6 +371,15 @@ public class PurchasingService {
 
         GoodsReceipt saved = goodsReceiptRepository.save(receipt);
         return toReceiptDto(saved);
+    }
+
+    /** Trim, and treat blank/absent as no RFC — so the unique key sees NULL, not "". */
+    private String normalizeTaxId(String taxId) {
+        if (taxId == null) {
+            return null;
+        }
+        String trimmed = taxId.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private SupplierDto toSupplierDto(Supplier s) {

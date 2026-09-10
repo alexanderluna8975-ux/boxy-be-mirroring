@@ -5,7 +5,7 @@ import lombok.Data;
 
 @Data
 public class CreateSupplierRequest {
-    @NotBlank(message = "Tax ID is required")
+    /** Optional — the supplier form no longer captures the RFC. */
     private String taxId;
 
     @NotBlank(message = "Supplier name is required")
