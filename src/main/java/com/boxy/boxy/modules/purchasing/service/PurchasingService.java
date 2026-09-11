@@ -31,6 +31,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -128,13 +129,36 @@ public class PurchasingService {
 
     // --- PURCHASE ORDERS ---
 
+    /** Frontend status vocabulary (`draft`, `pending-approval`, …) → the values stored on the entity. */
+    private static List<String> mapFrontendStatus(String feStatus) {
+        if (feStatus == null || feStatus.isBlank()) {
+            return null;
+        }
+        return switch (feStatus.toLowerCase().replace('-', '_')) {
+            case "draft" -> List.of("DRAFT", "ISSUED");
+            case "pending_approval" -> List.of("SUBMITTED");
+            case "approved" -> List.of("APPROVED");
+            case "rejected" -> List.of("REJECTED");
+            case "ordered" -> List.of("ORDERED");
+            case "partially_received" -> List.of("PARTIALLY_RECEIVED");
+            case "received" -> List.of("RECEIVED", "COMPLETED");
+            case "cancelled" -> List.of("CANCELLED");
+            default -> List.of(feStatus.toUpperCase());
+        };
+    }
+
     @Transactional(readOnly = true)
-    public Page<PurchaseOrderDto> getPurchaseOrders(Long branchId, Pageable pageable) {
+    public Page<PurchaseOrderDto> getPurchaseOrders(Long branchId, String status, Long supplierId, String search, Pageable pageable) {
         if (branchId != null) {
             return purchaseOrderRepository.findByBranchIdOrderByCreatedAtDesc(branchId, pageable).map(this::toPoDto);
         }
         Long companyId = SecurityUtils.getCurrentCompanyId();
-        return purchaseOrderRepository.findByCompanyIdOrderByCreatedAtDesc(companyId, pageable).map(this::toPoDto);
+        List<String> statuses = mapFrontendStatus(status);
+        boolean ignoreStatus = statuses == null;
+        String searchTerm = (search == null || search.isBlank()) ? null : search.trim();
+        return purchaseOrderRepository
+                .search(companyId, ignoreStatus, ignoreStatus ? List.of("_") : statuses, supplierId, searchTerm, pageable)
+                .map(this::toPoDto);
     }
 
     @Transactional(readOnly = true)
@@ -173,7 +197,7 @@ public class PurchasingService {
                 .issueDate(request.getIssueDate() != null ? request.getIssueDate() : LocalDate.now())
                 .expectedDeliveryDate(request.getExpectedDeliveryDate())
                 .notes(request.getNotes())
-                .status("ISSUED")
+                .status("DRAFT")
                 .createdBy(user)
                 .build();
 
@@ -224,26 +248,44 @@ public class PurchasingService {
         return toPoDto(purchaseOrderRepository.save(po));
     }
 
+    private static final Set<String> PO_TERMINAL_STATUSES = Set.of("RECEIVED", "COMPLETED", "CANCELLED");
+
+    private PurchaseOrder findPoOrThrow(Long id) {
+        return purchaseOrderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
+    }
+
+    private void requireStatus(PurchaseOrder po, String action, String... allowed) {
+        String current = po.getStatus() != null ? po.getStatus().toUpperCase() : "";
+        for (String s : allowed) {
+            if (s.equals(current)) {
+                return;
+            }
+        }
+        throw new BusinessException("INVALID_TRANSITION",
+                "No se puede " + action + " una orden en estado '" + current + "'.");
+    }
+
     @Transactional
     public PurchaseOrderDto submitPurchaseOrder(Long id) {
-        PurchaseOrder po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
+        PurchaseOrder po = findPoOrThrow(id);
+        requireStatus(po, "enviar a aprobación", "DRAFT", "ISSUED", "REJECTED");
         po.setStatus("SUBMITTED");
         return toPoDto(purchaseOrderRepository.save(po));
     }
 
     @Transactional
     public PurchaseOrderDto approvePurchaseOrder(Long id) {
-        PurchaseOrder po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
+        PurchaseOrder po = findPoOrThrow(id);
+        requireStatus(po, "aprobar", "SUBMITTED");
         po.setStatus("APPROVED");
         return toPoDto(purchaseOrderRepository.save(po));
     }
 
     @Transactional
     public PurchaseOrderDto rejectPurchaseOrder(Long id, String reason) {
-        PurchaseOrder po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
+        PurchaseOrder po = findPoOrThrow(id);
+        requireStatus(po, "rechazar", "SUBMITTED");
         po.setStatus("REJECTED");
         po.setNotes((po.getNotes() != null ? po.getNotes() + " | Motivo rechazo: " : "Motivo rechazo: ") + reason);
         return toPoDto(purchaseOrderRepository.save(po));
@@ -251,16 +293,20 @@ public class PurchasingService {
 
     @Transactional
     public PurchaseOrderDto markPurchaseOrderOrdered(Long id) {
-        PurchaseOrder po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
+        PurchaseOrder po = findPoOrThrow(id);
+        requireStatus(po, "marcar como enviada", "APPROVED");
         po.setStatus("ORDERED");
         return toPoDto(purchaseOrderRepository.save(po));
     }
 
     @Transactional
     public PurchaseOrderDto cancelPurchaseOrder(Long id) {
-        PurchaseOrder po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
+        PurchaseOrder po = findPoOrThrow(id);
+        String current = po.getStatus() != null ? po.getStatus().toUpperCase() : "";
+        if (PO_TERMINAL_STATUSES.contains(current) || current.startsWith("PARTIALLY")) {
+            throw new BusinessException("INVALID_TRANSITION",
+                    "No se puede cancelar una orden en estado '" + current + "'.");
+        }
         po.setStatus("CANCELLED");
         return toPoDto(purchaseOrderRepository.save(po));
     }
@@ -323,9 +369,22 @@ public class PurchasingService {
                 Product product = productRepository.findByIdAndDeletedAtIsNull(itemReq.getProductId())
                         .orElseThrow(() -> new ResourceNotFoundException("Product", itemReq.getProductId()));
 
-                BigDecimal qtyReceived = itemReq.getQuantityReceived() != null ? itemReq.getQuantityReceived() : BigDecimal.ONE;
+                BigDecimal qtyReceived = itemReq.getQuantityReceived() != null ? itemReq.getQuantityReceived() : BigDecimal.ZERO;
+                if (qtyReceived.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue; // nothing to receive for this line
+                }
                 BigDecimal unitCost = itemReq.getUnitCost() != null ? itemReq.getUnitCost()
                         : (product.getCostPrice() != null ? product.getCostPrice() : BigDecimal.valueOf(25.0));
+
+                // Post the received quantity back onto the matching purchase-order line.
+                final Long productId = product.getId();
+                po.getItems().stream()
+                        .filter(poi -> poi.getProduct() != null && productId.equals(poi.getProduct().getId()))
+                        .findFirst()
+                        .ifPresent(poi -> {
+                            BigDecimal already = poi.getQuantityReceived() != null ? poi.getQuantityReceived() : BigDecimal.ZERO;
+                            poi.setQuantityReceived(already.add(qtyReceived));
+                        });
 
                 // Update Stock Level
                 StockLevel stock = stockLevelRepository.findForUpdate(warehouse.getId(), product.getId())
@@ -366,7 +425,12 @@ public class PurchasingService {
             }
         }
 
-        po.setStatus("RECEIVED");
+        boolean fullyReceived = !po.getItems().isEmpty() && po.getItems().stream().allMatch(poi -> {
+            BigDecimal ordered = poi.getQuantityOrdered() != null ? poi.getQuantityOrdered() : BigDecimal.ZERO;
+            BigDecimal received = poi.getQuantityReceived() != null ? poi.getQuantityReceived() : BigDecimal.ZERO;
+            return received.compareTo(ordered) >= 0;
+        });
+        po.setStatus(fullyReceived ? "RECEIVED" : "PARTIALLY_RECEIVED");
         purchaseOrderRepository.save(po);
 
         GoodsReceipt saved = goodsReceiptRepository.save(receipt);
@@ -383,8 +447,13 @@ public class PurchasingService {
     }
 
     private SupplierDto toSupplierDto(Supplier s) {
+        long orderCount = purchaseOrderRepository.countBySupplierId(s.getId());
+        Instant lastOrderAt = purchaseOrderRepository.findLastOrderDateBySupplierId(s.getId());
+        BigDecimal totalPurchased = purchaseOrderRepository.sumTotalAmountBySupplierId(s.getId());
+
         return SupplierDto.builder()
                 .id(s.getId())
+                .code("PRV-" + String.format("%04d", s.getId()))
                 .taxId(s.getTaxId())
                 .name(s.getName())
                 .contactName(s.getContactName())
@@ -394,8 +463,9 @@ public class PurchasingService {
                 .paymentTermsDays(s.getPaymentTermsDays() != null ? s.getPaymentTermsDays() : 0)
                 .isActive(Boolean.TRUE.equals(s.getIsActive()))
                 .status(Boolean.TRUE.equals(s.getIsActive()) ? "active" : "inactive")
-                .orderCount(0)
-                .totalPurchased(BigDecimal.ZERO)
+                .orderCount((int) orderCount)
+                .lastOrderAt(lastOrderAt)
+                .totalPurchased(totalPurchased != null ? totalPurchased : BigDecimal.ZERO)
                 .createdAt(s.getCreatedAt())
                 .build();
     }
@@ -453,6 +523,7 @@ public class PurchasingService {
                         .sku(i.getProduct().getSku())
                         .productName(i.getProduct().getName())
                         .quantityReceived(i.getQuantityReceived())
+                        .unitCost(i.getUnitCost())
                         .build())
                 .toList();
 

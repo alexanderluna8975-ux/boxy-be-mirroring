@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @Data
@@ -40,6 +41,20 @@ public class ProductDto {
     private boolean isActive;
     private String status;
     private String stockStatus;
+    /** Available stock split by branch (only branches where the product has stock > 0). */
+    @Builder.Default
+    private List<BranchStockDto> stockByBranch = new ArrayList<>();
     private List<ProductVariantDto> variants;
     private Instant createdAt;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class BranchStockDto {
+        private Long branchId;
+        private String branchCode;
+        private String branchName;
+        private BigDecimal quantity;
+    }
 }

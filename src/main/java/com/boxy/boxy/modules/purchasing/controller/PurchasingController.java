@@ -88,11 +88,15 @@ public class PurchasingController {
     @Operation(summary = "List purchase orders with pagination")
     public ResponseEntity<ApiResponse<List<PurchaseOrderDto>>> getPurchaseOrders(
             @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, name = "filter.status") String status,
+            @RequestParam(required = false, name = "filter.supplierId") Long supplierId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "20") int pageSize) {
         int finalLimit = Math.max(limit, pageSize);
-        Page<PurchaseOrderDto> p = purchasingService.getPurchaseOrders(branchId, PageRequest.of(page - 1, finalLimit));
+        Page<PurchaseOrderDto> p = purchasingService.getPurchaseOrders(
+                branchId, status, supplierId, search, PageRequest.of(page - 1, finalLimit));
         return ResponseEntity.ok(ApiResponse.paged(p.getContent(), PageMeta.of(page, finalLimit, p.getTotalElements())));
     }
 
