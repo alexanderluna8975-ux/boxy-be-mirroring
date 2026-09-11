@@ -37,5 +37,6 @@ public class GoodsReceiptDto {
         private String sku;
         private String productName;
         private BigDecimal quantityReceived;
+        private BigDecimal unitCost;
     }
 }
