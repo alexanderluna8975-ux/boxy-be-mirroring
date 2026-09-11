@@ -54,6 +54,20 @@ public class Invoice {
     @Column(name = "document_type", nullable = false, length = 20)
     private String documentType; // INVOICE, TICKET, RECEIPT
 
+    /** How the sale itself was made: cash/card/transfer/credit — independent of
+     * any later {@link Payment} settlement row against a credit balance. */
+    @Column(name = "payment_method", nullable = false, length = 20)
+    @Builder.Default
+    private String paymentMethod = "cash";
+
+    /** Agreed credit term in days, captured at checkout. {@code null} for every non-credit sale. */
+    @Column(name = "credit_term_days")
+    private Integer creditTermDays;
+
+    /** {@code createdAt + creditTermDays}, derived server-side. {@code null} for every non-credit sale. */
+    @Column(name = "due_date")
+    private Instant dueDate;
+
     @Column(nullable = false, length = 10)
     private String series;
 

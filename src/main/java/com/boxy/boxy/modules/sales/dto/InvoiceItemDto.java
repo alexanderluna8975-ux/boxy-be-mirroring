@@ -24,4 +24,5 @@ public class InvoiceItemDto {
     private BigDecimal taxAmount;
     private BigDecimal totalAmount;
     private BigDecimal lineTotal;
+    private String unitName;
 }

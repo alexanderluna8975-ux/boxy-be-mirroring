@@ -18,4 +18,6 @@ public class CatalogItemDto {
     private String name;
     private BigDecimal salePrice;
     private BigDecimal availableStock;
+    private String brandName;
+    private String unitName;
 }

@@ -32,6 +32,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+    import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -166,6 +167,8 @@ public class SalesService {
                 .name(p.getName())
                 .salePrice(p.getSalePrice() != null ? p.getSalePrice() : (p.getSellingPrice() != null ? p.getSellingPrice() : BigDecimal.ZERO))
                 .availableStock(available)
+                .brandName(p.getBrand() != null ? p.getBrand().getName() : "—")
+                .unitName(p.getUnitOfMeasure() != null ? p.getUnitOfMeasure().getName() : "—")
                 .build();
     }
 
@@ -379,6 +382,16 @@ public class SalesService {
             }
         }
 
+        String saleMethod = request.getPaymentMethod() != null ? request.getPaymentMethod().trim().toLowerCase() : "cash";
+        boolean isCredit = "credit".equals(saleMethod);
+
+        if (isCredit && request.getCustomerId() == null) {
+            throw new BusinessException("CREDIT_SALE_REQUIRES_CUSTOMER", "A credit sale requires a customer.", org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+        if (isCredit && (request.getCreditTermDays() == null || request.getCreditTermDays() <= 0)) {
+            throw new BusinessException("CREDIT_SALE_REQUIRES_TERM", "A credit sale requires a credit term.", org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+
         Long branchId = request.getBranchId() != null ? request.getBranchId() : 1L;
         Long warehouseId = request.getWarehouseId() != null ? request.getWarehouseId() : 1L;
         Long customerId = request.getCustomerId() != null ? request.getCustomerId() : 1L;
@@ -435,6 +448,9 @@ public class SalesService {
                 .number(number)
                 .idempotencyKey(request.getIdempotencyKey())
                 .status("PAID")
+                .paymentMethod(saleMethod)
+                .creditTermDays(isCredit ? request.getCreditTermDays() : null)
+                .dueDate(isCredit ? Instant.now().plus(request.getCreditTermDays(), java.time.temporal.ChronoUnit.DAYS) : null)
                 .createdBy(user)
                 .build();
 
@@ -531,7 +547,9 @@ public class SalesService {
                     cashPaid = cashPaid.add(payReq.getAmount());
                 }
             }
-        } else {
+        } else if (!isCredit) {
+            // A credit sale gets no settlement payment at checkout — the whole
+            // total stays as `balanceDue` until "Registrar Pago a Cuenta" is used.
             String method = request.getPaymentMethod() != null ? request.getPaymentMethod().toUpperCase() : "CASH";
             BigDecimal payAmount = request.getAmountTendered() != null && request.getAmountTendered().compareTo(BigDecimal.ZERO) > 0
                     ? request.getAmountTendered() : invoice.getTotalAmount();
@@ -710,6 +728,7 @@ public class SalesService {
                         .taxAmount(i.getTaxAmount())
                         .totalAmount(i.getTotalAmount())
                         .lineTotal(i.getTotalAmount())
+                        .unitName(i.getProduct().getUnitOfMeasure() != null ? i.getProduct().getUnitOfMeasure().getName() : "—")
                         .build())
                 .toList();
 
@@ -749,7 +768,7 @@ public class SalesService {
                 ? inv.getSeries() + "-" + inv.getNumber()
                 : "F-" + inv.getId();
 
-        String payMethod = !payDtos.isEmpty() ? payDtos.get(0).getPaymentMethod().toLowerCase() : "cash";
+        String payMethod = inv.getPaymentMethod() != null ? inv.getPaymentMethod().toLowerCase() : "cash";
 
         return InvoiceDto.builder()
                 .id(inv.getId())
@@ -770,6 +789,8 @@ public class SalesService {
                 .total(total)
                 .amountPaid(amountPaid)
                 .balanceDue(balanceDue)
+                .creditTermDays(inv.getCreditTermDays())
+                .dueDate(inv.getDueDate())
                 .status(saleStatus)
                 .voidedAt("voided".equals(saleStatus) ? inv.getCreatedAt() : null)
                 .voidedBy("voided".equals(saleStatus) ? "Admin" : null)
@@ -982,6 +1003,12 @@ public class SalesService {
                 if (customerId != null && inv.getCustomer() != null && !customerId.equals(inv.getCustomer().getId())) {
                     continue;
                 }
+                // "Venta de Productos" only lists what's genuinely paid — a
+                // credit sale still owed on belongs to Cuentas por Cobrar, and a
+                // voided sale was never really collected either way.
+                if (!isFullyPaid(inv)) {
+                    continue;
+                }
                 docs.add(toSaleDocumentDto(inv));
             }
         }
@@ -1053,7 +1080,6 @@ public class SalesService {
 
         List<Invoice> invoices = invoiceRepository.findByCompanyId(companyId);
         BigDecimal collected = BigDecimal.ZERO;
-        BigDecimal receivable = BigDecimal.ZERO;
 
         for (Invoice inv : invoices) {
             if (branchId != null && inv.getBranch() != null && !branchId.equals(inv.getBranch().getId())) {
@@ -1066,18 +1092,13 @@ public class SalesService {
                 continue;
             }
 
-            BigDecimal total = inv.getTotalAmount() != null ? inv.getTotalAmount() : BigDecimal.ZERO;
             BigDecimal paid = inv.getPayments().stream()
                     .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            BigDecimal balance = total.subtract(paid);
-            if (balance.compareTo(BigDecimal.ZERO) < 0) {
-                balance = BigDecimal.ZERO;
-            }
-
+            // Money actually collected — what's still owed on an open credit sale
+            // belongs to Cuentas por Cobrar's own summary, not this one.
             collected = collected.add(paid);
-            receivable = receivable.add(balance);
         }
 
         List<SalesOrder> orders = salesOrderRepository.findByCompanyId(companyId);
@@ -1099,7 +1120,6 @@ public class SalesService {
 
         return SalesSummaryDto.builder()
                 .collected(collected)
-                .receivable(receivable)
                 .activeQuotations(activeQuotations)
                 .build();
     }
@@ -1114,6 +1134,17 @@ public class SalesService {
                 .sale(String.format("V-%05d", salesCount))
                 .quotation(String.format("COT-%05d", quotationCount))
                 .build();
+    }
+
+    private boolean isFullyPaid(Invoice inv) {
+        if ("VOIDED".equalsIgnoreCase(inv.getStatus())) {
+            return false;
+        }
+        BigDecimal total = inv.getTotalAmount() != null ? inv.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal paid = inv.getPayments().stream()
+                .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return paid.compareTo(total) >= 0;
     }
 
     private SalesDocumentDto toSaleDocumentDto(Invoice inv) {
@@ -1140,9 +1171,7 @@ public class SalesService {
             saleStatus = "pending";
         }
 
-        String paymentMethod = !inv.getPayments().isEmpty()
-                ? inv.getPayments().get(0).getPaymentMethod().toLowerCase()
-                : "cash";
+        String paymentMethod = inv.getPaymentMethod() != null ? inv.getPaymentMethod().toLowerCase() : "cash";
 
         return SalesDocumentDto.builder()
                 .id(String.valueOf(inv.getId()))
@@ -1179,6 +1208,148 @@ public class SalesService {
                 .balanceDue(BigDecimal.ZERO)
                 .quotationStatus(so.getStatus() != null ? so.getStatus().toLowerCase() : "draft")
                 .branchId(so.getBranch() != null ? String.valueOf(so.getBranch().getId()) : "1")
+                .build();
+    }
+
+    // --- ACCOUNTS RECEIVABLE (CUENTAS POR COBRAR) ---
+
+    @Transactional(readOnly = true)
+    public Page<CreditSaleListItemDto> getReceivables(String search, String status, String dateFrom, String dateTo,
+                                                       String sortField, String sortDirection, Pageable pageable) {
+        List<CreditSaleListItemDto> filtered = filterReceivables(search, status, dateFrom, dateTo).stream()
+                .sorted(receivablesComparator(sortField, sortDirection))
+                .toList();
+
+        int total = filtered.size();
+        int pageNumber = pageable.getPageNumber();
+        int pageSize = pageable.getPageSize();
+        int fromIndex = pageNumber * pageSize;
+        List<CreditSaleListItemDto> pagedList;
+        if (fromIndex >= total) {
+            pagedList = Collections.emptyList();
+        } else {
+            int toIndex = Math.min(fromIndex + pageSize, total);
+            pagedList = filtered.subList(fromIndex, toIndex);
+        }
+
+        return new org.springframework.data.domain.PageImpl<>(pagedList, pageable, total);
+    }
+
+    @Transactional(readOnly = true)
+    public ReceivablesSummaryDto getReceivablesSummary(String search, String status, String dateFrom, String dateTo) {
+        Instant now = Instant.now();
+        BigDecimal totalOutstanding = BigDecimal.ZERO;
+        BigDecimal totalOverdue = BigDecimal.ZERO;
+
+        for (CreditSaleListItemDto d : filterReceivables(search, status, dateFrom, dateTo)) {
+            totalOutstanding = totalOutstanding.add(d.getBalanceDue());
+            if (d.getBalanceDue().compareTo(BigDecimal.ZERO) > 0 && d.getDueDate() != null && d.getDueDate().isBefore(now)) {
+                totalOverdue = totalOverdue.add(d.getBalanceDue());
+            }
+        }
+
+        return ReceivablesSummaryDto.builder()
+                .totalOutstanding(totalOutstanding)
+                .totalOverdue(totalOverdue)
+                .build();
+    }
+
+    private List<CreditSaleListItemDto> filterReceivables(String search, String status, String dateFrom, String dateTo) {
+        Long companyId = SecurityUtils.getCurrentCompanyId();
+
+        java.time.Instant from = com.boxy.boxy.core.web.DateFilterParser.parseStart(dateFrom);
+        java.time.Instant to = com.boxy.boxy.core.web.DateFilterParser.parseEnd(dateTo);
+
+        return invoiceRepository.findByCompanyId(companyId).stream()
+                .filter(inv -> "credit".equalsIgnoreCase(inv.getPaymentMethod()))
+                .map(this::toCreditSaleListItemDto)
+                // Cuentas por Cobrar only tracks what's still owed — a fully-paid
+                // or voided credit sale has nothing left to collect.
+                .filter(d -> !"voided".equals(d.getStatus()) && d.getBalanceDue().compareTo(BigDecimal.ZERO) > 0)
+                .filter(d -> matchesReceivableSearch(d, search))
+                .filter(d -> status == null || status.isBlank() || status.equalsIgnoreCase(d.getStatus()))
+                .filter(d -> from == null || (d.getDueDate() != null && !d.getDueDate().isBefore(from)))
+                .filter(d -> to == null || (d.getDueDate() != null && !d.getDueDate().isAfter(to)))
+                .toList();
+    }
+
+    private boolean matchesReceivableSearch(CreditSaleListItemDto d, String search) {
+        if (search == null || search.isBlank()) {
+            return true;
+        }
+        String needle = search.trim().toLowerCase();
+        if (d.getCustomerName() != null && d.getCustomerName().toLowerCase().contains(needle)) {
+            return true;
+        }
+        if (d.getFolio() != null && d.getFolio().toLowerCase().contains(needle)) {
+            return true;
+        }
+        return d.getProducts().stream().anyMatch(p ->
+                (p.getSku() != null && p.getSku().toLowerCase().contains(needle))
+                        || (p.getName() != null && p.getName().toLowerCase().contains(needle)));
+    }
+
+    private Comparator<CreditSaleListItemDto> receivablesComparator(String sortField, String sortDirection) {
+        String field = (sortField == null || sortField.isBlank()) ? "dueDate" : sortField;
+        boolean desc = "desc".equalsIgnoreCase(sortDirection);
+        Comparator<CreditSaleListItemDto> cmp = switch (field) {
+            case "folio" -> Comparator.comparing(CreditSaleListItemDto::getFolio, Comparator.nullsLast(String::compareTo));
+            case "customerName" -> Comparator.comparing(CreditSaleListItemDto::getCustomerName, Comparator.nullsLast(String::compareTo));
+            case "soldAt" -> Comparator.comparing(CreditSaleListItemDto::getSoldAt, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "total" -> Comparator.comparing(CreditSaleListItemDto::getTotal, Comparator.nullsLast(Comparator.naturalOrder()));
+            case "balanceDue" -> Comparator.comparing(CreditSaleListItemDto::getBalanceDue, Comparator.nullsLast(Comparator.naturalOrder()));
+            default -> Comparator.comparing(CreditSaleListItemDto::getDueDate, Comparator.nullsLast(Comparator.naturalOrder()));
+        };
+        return desc ? cmp.reversed() : cmp;
+    }
+
+    private CreditSaleListItemDto toCreditSaleListItemDto(Invoice inv) {
+        BigDecimal total = inv.getTotalAmount() != null ? inv.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal paid = inv.getPayments().stream()
+                .map(p -> p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal balanceDue = total.subtract(paid);
+        if (balanceDue.compareTo(BigDecimal.ZERO) < 0) {
+            balanceDue = BigDecimal.ZERO;
+        }
+
+        String saleStatus;
+        if ("VOIDED".equalsIgnoreCase(inv.getStatus())) {
+            saleStatus = "voided";
+        } else if (paid.compareTo(total) >= 0) {
+            saleStatus = "paid";
+        } else if (paid.compareTo(BigDecimal.ZERO) > 0) {
+            saleStatus = "partial";
+        } else {
+            saleStatus = "pending";
+        }
+
+        String folio = inv.getSeries() != null && inv.getNumber() != null
+                ? inv.getSeries() + "-" + inv.getNumber()
+                : "V-" + String.format("%05d", inv.getId());
+
+        java.util.LinkedHashMap<String, CreditSaleListItemDto.ProductSummaryDto> products = new java.util.LinkedHashMap<>();
+        for (InvoiceItem item : inv.getItems()) {
+            products.putIfAbsent(item.getSku(), CreditSaleListItemDto.ProductSummaryDto.builder()
+                    .sku(item.getSku())
+                    .name(item.getProductName())
+                    .build());
+        }
+
+        return CreditSaleListItemDto.builder()
+                .id(inv.getId())
+                .folio(folio)
+                .customerId(inv.getCustomer() != null ? inv.getCustomer().getId() : null)
+                .customerName(inv.getCustomer() != null ? inv.getCustomer().getName() : "Cliente General")
+                .soldAt(inv.getCreatedAt())
+                .creditTermDays(inv.getCreditTermDays() != null ? inv.getCreditTermDays() : 0)
+                .dueDate(inv.getDueDate() != null ? inv.getDueDate() : inv.getCreatedAt())
+                .total(total)
+                .amountPaid(paid)
+                .balanceDue(balanceDue)
+                .status(saleStatus)
+                .products(new ArrayList<>(products.values()))
+                .branchId(inv.getBranch() != null ? inv.getBranch().getId() : null)
                 .build();
     }
 }

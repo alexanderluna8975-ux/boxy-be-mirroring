@@ -22,6 +22,9 @@ public class CheckoutRequest {
     private String paymentMethod;
     private BigDecimal amountTendered;
 
+    /** Required when {@code paymentMethod == "credit"}; ignored otherwise. */
+    private Integer creditTermDays;
+
     @JsonAlias({"lines", "items"})
     private List<CheckoutItemRequest> items;
 
