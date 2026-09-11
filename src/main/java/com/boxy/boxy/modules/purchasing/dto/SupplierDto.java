@@ -14,6 +14,8 @@ import java.time.Instant;
 @AllArgsConstructor
 public class SupplierDto {
     private Long id;
+    /** No dedicated column — derived from the id (`suppliers` has no `code`), same format as the FE mock. */
+    private String code;
     private String taxId;
     private String name;
     private String contactName;

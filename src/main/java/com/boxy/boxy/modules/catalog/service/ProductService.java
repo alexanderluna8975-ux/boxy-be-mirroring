@@ -541,6 +541,17 @@ public class ProductService {
                 ? "out-of-stock"
                 : (isLowStock ? "low-stock" : "in-stock");
 
+        java.util.List<ProductDto.BranchStockDto> stockByBranch = stockLevelRepository != null
+                ? stockLevelRepository.getBranchStockByProductId(p.getId()).stream()
+                        .map(row -> ProductDto.BranchStockDto.builder()
+                                .branchId(row[0] != null ? ((Number) row[0]).longValue() : null)
+                                .branchCode((String) row[1])
+                                .branchName((String) row[2])
+                                .quantity(row[3] != null ? new BigDecimal(row[3].toString()) : BigDecimal.ZERO)
+                                .build())
+                        .toList()
+                : java.util.List.of();
+
         return ProductDto.builder()
                 .id(p.getId())
                 .categoryId(p.getCategory() != null ? p.getCategory().getId() : null)
@@ -568,6 +579,7 @@ public class ProductService {
                 .isActive(active)
                 .status(status)
                 .stockStatus(stockStatus)
+                .stockByBranch(stockByBranch)
                 .createdAt(p.getCreatedAt())
                 .build();
     }

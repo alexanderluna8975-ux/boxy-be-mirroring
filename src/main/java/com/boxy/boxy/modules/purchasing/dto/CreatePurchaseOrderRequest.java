@@ -16,7 +16,10 @@ public class CreatePurchaseOrderRequest {
     private Long supplierId;
 
     private LocalDate issueDate = LocalDate.now();
+
+    @JsonAlias({"expectedDeliveryDate", "expectedDate"})
     private LocalDate expectedDeliveryDate;
+
     private String notes;
 
     @JsonAlias({"lines", "items"})

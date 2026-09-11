@@ -252,6 +252,35 @@ public class SalesController {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getSalesSummary(branchId, customerId)));
     }
 
+    // --- ACCOUNTS RECEIVABLE (CUENTAS POR COBRAR) ---
+
+    @GetMapping("/receivables")
+    @Operation(summary = "List credit sales (Cuentas por Cobrar), sorted by upcoming due date")
+    public ResponseEntity<ApiResponse<List<CreditSaleListItemDto>>> getReceivables(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, name = "filter.status") String status,
+            @RequestParam(required = false, name = "filter.dateFrom") String dateFrom,
+            @RequestParam(required = false, name = "filter.dateTo") String dateTo,
+            @RequestParam(required = false) String sortField,
+            @RequestParam(required = false) String sortDirection,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer pageSize) {
+        Pageable pageable = com.boxy.boxy.core.web.PageableFactory.of(page, limit, pageSize);
+        Page<CreditSaleListItemDto> paged = salesService.getReceivables(search, status, dateFrom, dateTo, sortField, sortDirection, pageable);
+        return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), PageMeta.from(paged)));
+    }
+
+    @GetMapping("/receivables/summary")
+    @Operation(summary = "KPI summary for Cuentas por Cobrar")
+    public ResponseEntity<ApiResponse<ReceivablesSummaryDto>> getReceivablesSummary(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, name = "filter.status") String status,
+            @RequestParam(required = false, name = "filter.dateFrom") String dateFrom,
+            @RequestParam(required = false, name = "filter.dateTo") String dateTo) {
+        return ResponseEntity.ok(ApiResponse.ok(salesService.getReceivablesSummary(search, status, dateFrom, dateTo)));
+    }
+
     @GetMapping("/next-folio")
     @Operation(summary = "Get preview of next sales and quotation folio numbers")
     public ResponseEntity<ApiResponse<NextFolioPreviewDto>> getNextFolioPreview() {
