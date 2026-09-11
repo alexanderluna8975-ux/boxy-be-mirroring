@@ -13,6 +13,5 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class SalesSummaryDto {
     private BigDecimal collected;
-    private BigDecimal receivable;
     private BigDecimal activeQuotations;
 }

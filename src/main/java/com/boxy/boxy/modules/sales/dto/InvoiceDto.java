@@ -43,6 +43,10 @@ public class InvoiceDto {
     private List<PaymentDto> payments;
     private BigDecimal amountPaid;
     private BigDecimal balanceDue;
+    /** Agreed credit term in days, captured at checkout. {@code null} for every non-credit sale. */
+    private Integer creditTermDays;
+    /** {@code soldAt + creditTermDays}, derived server-side. {@code null} for every non-credit sale. */
+    private Instant dueDate;
     private Instant voidedAt;
     private String voidedBy;
     private Instant createdAt;
