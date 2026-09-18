@@ -21,7 +21,12 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
             "AND (:search IS NULL " +
             "     OR LOWER(a.action) LIKE LOWER(CONCAT('%', :search, '%')) " +
             "     OR LOWER(a.resourceType) LIKE LOWER(CONCAT('%', :search, '%')) " +
-            "     OR LOWER(a.resourceId) LIKE LOWER(CONCAT('%', :search, '%'))) " +
+            "     OR LOWER(a.resourceId) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "     OR a.userId IN (SELECT u.id FROM User u WHERE " +
+            "         LOWER(u.username) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "         OR LOWER(u.firstName) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "         OR LOWER(u.lastName) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "         OR LOWER(CONCAT(u.firstName, ' ', u.lastName)) LIKE LOWER(CONCAT('%', :search, '%')))) " +
             "ORDER BY a.createdAt DESC")
     Page<AuditLog> search(@Param("companyId") Long companyId,
                            @Param("search") String search,
