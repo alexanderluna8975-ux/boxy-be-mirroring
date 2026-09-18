@@ -66,6 +66,7 @@ public class InventoryService {
             "transfer-in", List.of("TRANSFER_IN"),
             "transfer-out", List.of("TRANSFER_OUT"),
             "sale", List.of("SALE_OUT"),
+            "sale-void", List.of("RETURN"),
             "purchase", List.of("PURCHASE_IN", "INITIAL_STOCK"),
             "adjustment", List.of("ADJUSTMENT_IN", "ADJUSTMENT_OUT"));
 
@@ -301,12 +302,13 @@ public class InventoryService {
 
     @Transactional(readOnly = true)
     public Page<StockMovementDto> getAllMovements(Long warehouseId, Long productId, String type,
-                                                   String dateFrom, String dateTo, Pageable pageable) {
+                                                   String dateFrom, String dateTo, String search, Pageable pageable) {
         Long companyId = SecurityUtils.requireCurrentCompanyId();
-        List<String> movementTypes = type != null ? FE_TO_MOVEMENT_TYPES.getOrDefault(type, List.of()) : null;
+        List<String> movementTypes = type != null ? FE_TO_MOVEMENT_TYPES.get(type) : null;
         return stockMovementRepository.findAllFiltered(
                         companyId, warehouseId, productId, movementTypes,
-                        DateFilterParser.parseStart(dateFrom), DateFilterParser.parseEnd(dateTo), pageable)
+                        DateFilterParser.parseStart(dateFrom), DateFilterParser.parseEnd(dateTo),
+                        blankToNull(search), pageable)
                 .map(this::toMovementDto);
     }
 

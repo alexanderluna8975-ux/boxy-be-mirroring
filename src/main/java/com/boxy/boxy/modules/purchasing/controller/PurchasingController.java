@@ -33,13 +33,15 @@ public class PurchasingController {
     @GetMapping("/suppliers")
     @Operation(summary = "List all active suppliers")
     public ResponseEntity<ApiResponse<List<SupplierDto>>> getAllSuppliers(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, name = "filter.status") String status,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) Integer pageSize) {
         if (page != null || limit != null || pageSize != null) {
             int p = page != null ? page : 1;
             int l = limit != null ? limit : (pageSize != null ? pageSize : 20);
-            Page<SupplierDto> paged = purchasingService.getSuppliersPaged(PageRequest.of(p - 1, l));
+            Page<SupplierDto> paged = purchasingService.getSuppliersPaged(search, status, PageRequest.of(p - 1, l));
             return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), PageMeta.of(p, l, paged.getTotalElements())));
         }
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.getAllSuppliers()));
@@ -91,12 +93,14 @@ public class PurchasingController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false, name = "filter.status") String status,
             @RequestParam(required = false, name = "filter.supplierId") Long supplierId,
+            @RequestParam(required = false, name = "filter.dateFrom") String dateFrom,
+            @RequestParam(required = false, name = "filter.dateTo") String dateTo,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "20") int pageSize) {
         int finalLimit = Math.max(limit, pageSize);
         Page<PurchaseOrderDto> p = purchasingService.getPurchaseOrders(
-                branchId, status, supplierId, search, PageRequest.of(page - 1, finalLimit));
+                branchId, status, supplierId, search, dateFrom, dateTo, PageRequest.of(page - 1, finalLimit));
         return ResponseEntity.ok(ApiResponse.paged(p.getContent(), PageMeta.of(page, finalLimit, p.getTotalElements())));
     }
 
