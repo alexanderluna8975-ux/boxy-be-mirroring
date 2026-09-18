@@ -64,9 +64,13 @@ public class SalesService {
     }
 
     @Transactional(readOnly = true)
-    public Page<CustomerDto> getCustomersPaged(Pageable pageable) {
+    public Page<CustomerDto> getCustomersPaged(String search, String status, Pageable pageable) {
         Long companyId = SecurityUtils.getCurrentCompanyId();
-        return customerRepository.findByCompanyIdAndDeletedAtIsNull(companyId, pageable)
+        Boolean isActive = "active".equalsIgnoreCase(status) ? Boolean.TRUE
+                : "inactive".equalsIgnoreCase(status) ? Boolean.FALSE
+                : null;
+        String term = (search != null && !search.isBlank()) ? search.trim() : null;
+        return customerRepository.findAllFiltered(companyId, term, isActive, pageable)
                 .map(this::toCustomerDto);
     }
 
@@ -831,9 +835,12 @@ public class SalesService {
     // --- PRICE ADJUSTMENTS ---
 
     @Transactional(readOnly = true)
-    public Page<PriceAdjustmentDto> getPriceAdjustments(Pageable pageable) {
+    public Page<PriceAdjustmentDto> getPriceAdjustments(String search, String dateFrom, String dateTo, Pageable pageable) {
         Long companyId = SecurityUtils.getCurrentCompanyId();
-        return priceAdjustmentRepository.findByCompanyIdOrderByAppliedAtDesc(companyId, pageable)
+        String term = (search != null && !search.isBlank()) ? search.trim() : null;
+        Instant from = com.boxy.boxy.core.web.DateFilterParser.parseStart(dateFrom);
+        Instant to = com.boxy.boxy.core.web.DateFilterParser.parseEnd(dateTo);
+        return priceAdjustmentRepository.findAllFiltered(companyId, term, from, to, pageable)
                 .map(this::toPriceAdjustmentDto);
     }
 
@@ -986,8 +993,11 @@ public class SalesService {
     public Page<SalesDocumentDto> getSalesDocuments(Long branchId, String kind, String search,
                                                     String paymentMethod, String status,
                                                     String saleStatus, Long customerId,
+                                                    String dateFrom, String dateTo,
                                                     Pageable pageable) {
         Long companyId = SecurityUtils.getCurrentCompanyId();
+        Instant from = com.boxy.boxy.core.web.DateFilterParser.parseStart(dateFrom);
+        Instant to = com.boxy.boxy.core.web.DateFilterParser.parseEnd(dateTo);
 
         List<SalesDocumentDto> docs = new ArrayList<>();
 
@@ -1049,6 +1059,12 @@ public class SalesService {
                         if (d.getSaleStatus() == null || !d.getSaleStatus().equalsIgnoreCase(saleStatus)) {
                             return false;
                         }
+                    }
+                    if (from != null && (d.getIssuedAt() == null || d.getIssuedAt().isBefore(from))) {
+                        return false;
+                    }
+                    if (to != null && (d.getIssuedAt() == null || d.getIssuedAt().isAfter(to))) {
+                        return false;
                     }
                     return true;
                 })
