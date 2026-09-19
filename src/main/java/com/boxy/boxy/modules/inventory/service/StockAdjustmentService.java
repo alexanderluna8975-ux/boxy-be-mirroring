@@ -3,7 +3,10 @@ package com.boxy.boxy.modules.inventory.service;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
 import com.boxy.boxy.core.security.SecurityUtils;
+import com.boxy.boxy.core.sequence.DocumentSequenceService;
+import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.core.web.DateFilterParser;
+import com.boxy.boxy.modules.administration.entity.Company;
 import com.boxy.boxy.modules.administration.entity.User;
 import com.boxy.boxy.modules.administration.entity.Warehouse;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
@@ -33,7 +36,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -46,6 +48,7 @@ public class StockAdjustmentService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final DocumentSequenceService documentSequenceService;
 
     public static final List<AdjustmentReasonDto> REASONS = List.of(
             new AdjustmentReasonDto("1", "Conteo físico / Inventario cíclico"),
@@ -123,10 +126,11 @@ public class StockAdjustmentService {
             reasonName = "Conteo físico";
         }
 
-        String folio = "ADJ-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        Company company = warehouse.getBranch().getCompany();
+        String folio = documentSequenceService.nextFolio(company.getId(), DocumentType.ADJUSTMENT);
 
         StockAdjustment adjustment = StockAdjustment.builder()
-                .company(warehouse.getBranch().getCompany())
+                .company(company)
                 .warehouse(warehouse)
                 .adjustmentNumber(folio)
                 .reason(reasonName)
@@ -253,7 +257,7 @@ public class StockAdjustmentService {
                         .productName(i.getProduct().getName())
                         .quantityDelta(i.getDifferenceQuantity())
                         .previousQuantity(i.getPreviousQuantity())
-                        .newQuantity(i.getNewQuantity())
+                        .countedQuantity(i.getNewQuantity())
                         .unitCost(i.getUnitCost())
                         .build())
                 .toList();

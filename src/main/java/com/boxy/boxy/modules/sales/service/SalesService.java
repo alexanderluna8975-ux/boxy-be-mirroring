@@ -3,7 +3,12 @@ package com.boxy.boxy.modules.sales.service;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.InsufficientStockException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
+import com.boxy.boxy.core.pdf.AmountInWordsEs;
+import com.boxy.boxy.core.pdf.PdfDocumentService;
+import com.boxy.boxy.core.pdf.PdfLineItem;
 import com.boxy.boxy.core.security.SecurityUtils;
+import com.boxy.boxy.core.sequence.DocumentSequenceService;
+import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.modules.administration.entity.Branch;
 import com.boxy.boxy.modules.administration.entity.Company;
 import com.boxy.boxy.modules.administration.entity.User;
@@ -30,9 +35,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
     import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -54,6 +63,13 @@ public class SalesService {
     private final CompanyRepository companyRepository;
     private final PriceAdjustmentRepository priceAdjustmentRepository;
     private final PaymentRepository paymentRepository;
+    private final DocumentSequenceService documentSequenceService;
+    private final PdfDocumentService pdfDocumentService;
+
+    /** Bolivia has one fixed offset (UTC-4, no DST) — same zone used for every generated PDF's dates. */
+    private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm").withZone(ZoneId.of("America/La_Paz"));
+    private static final Map<String, String> PAYMENT_METHOD_ES = Map.of(
+            "cash", "Efectivo", "card", "Tarjeta", "transfer", "Transferencia", "credit", "Crédito");
 
     @Transactional(readOnly = true)
     public List<CustomerDto> getAllCustomers() {
@@ -207,7 +223,7 @@ public class SalesService {
         User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.getCurrentUserId())
                 .orElseGet(() -> userRepository.findAll().stream().findFirst().orElseThrow());
 
-        String orderNumber = "COT-" + System.currentTimeMillis();
+        String orderNumber = documentSequenceService.nextFolio(companyId, DocumentType.QUOTATION);
 
         BigDecimal subtotal = BigDecimal.ZERO;
         BigDecimal taxTotal = BigDecimal.ZERO;
@@ -435,7 +451,10 @@ public class SalesService {
                 .orElseGet(() -> userRepository.findAll().stream().findFirst().orElseThrow());
 
         String series = "B001";
-        String number = String.valueOf(System.currentTimeMillis()).substring(3);
+        // Correlative per company (not System.currentTimeMillis()), so the visible folio
+        // (series + "-" + number) increases one-by-one instead of jumping by however many
+        // milliseconds elapsed since the previous sale.
+        String number = String.format("%05d", documentSequenceService.next(company.getId(), DocumentType.SALE));
 
         BigDecimal subtotal = BigDecimal.ZERO;
         BigDecimal discountTotal = request.getDiscountAmount() != null ? request.getDiscountAmount() : BigDecimal.ZERO;
@@ -582,6 +601,122 @@ public class SalesService {
         Invoice invoice = invoiceRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Sale", id));
         return toInvoiceDto(invoice);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generateQuotationPdf(Long id) {
+        SalesOrder so = salesOrderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Quotation", id));
+        Company company = so.getCompany();
+        Customer customer = so.getCustomer();
+
+        List<PdfLineItem> lines = so.getItems().stream()
+                .map(item -> PdfLineItem.builder()
+                        .sku(item.getProduct().getSku())
+                        .description(item.getProduct().getName())
+                        .unitName(item.getProduct().getUnit() != null ? item.getProduct().getUnit().getName() : "")
+                        .quantity(item.getQuantity())
+                        .unitPrice(item.getUnitPrice())
+                        .discount(BigDecimal.ZERO)
+                        .subtotal(item.getTotalAmount())
+                        .build())
+                .toList();
+
+        Map<String, Object> partyFields = new LinkedHashMap<>();
+        if (customer != null) {
+            partyFields.put("Razón Social", customer.getName());
+            partyFields.put("NIT/CI", customer.getDocumentNumber());
+            if (isNotBlank(customer.getAddress())) {
+                partyFields.put("Dirección", customer.getAddress());
+            }
+            if (isNotBlank(customer.getPhone())) {
+                partyFields.put("Teléfono", customer.getPhone());
+            }
+        }
+
+        // No validity-date field exists on SalesOrder yet (QuotationDto.validUntil is never set by
+        // toQuotationDto() either) — omitted here rather than inventing a value. Flagged as a
+        // pre-existing gap, out of scope for this change.
+        Map<String, Object> metaFields = new LinkedHashMap<>();
+        metaFields.put("Fecha Cotizada", PDF_DATE.format(so.getCreatedAt()));
+        metaFields.put("Número cotización", so.getOrderNumber());
+
+        Map<String, Object> model = new HashMap<>();
+        model.put("company", company);
+        model.put("docTitle", "COTIZACIÓN");
+        model.put("priceColumnLabel", "Precio");
+        model.put("total", so.getTotalAmount());
+        model.put("notes", so.getNotes() != null ? so.getNotes() : "");
+        model.put("lines", lines);
+        model.put("partyFields", partyFields);
+        model.put("metaFields", metaFields);
+        model.put("amountInWords", AmountInWordsEs.format(so.getTotalAmount(), company.getCurrencySymbol()));
+        model.put("sellerName", so.getCreatedBy() != null ? so.getCreatedBy().getFullName() : "");
+        model.put("leftRoleLabel", "Cotizador");
+        model.put("rightRoleLabel", "Vendedor");
+
+        return pdfDocumentService.render("money-document", model);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] generateSalePdf(Long id) {
+        Invoice invoice = invoiceRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Sale", id));
+        Company company = invoice.getCompany();
+        Customer customer = invoice.getCustomer();
+
+        List<PdfLineItem> lines = invoice.getItems().stream()
+                .map(item -> PdfLineItem.builder()
+                        .sku(item.getSku())
+                        .description(item.getProductName())
+                        .unitName(item.getProduct() != null && item.getProduct().getUnit() != null
+                                ? item.getProduct().getUnit().getName() : "")
+                        .quantity(item.getQuantity())
+                        .unitPrice(item.getUnitPrice())
+                        .discount(item.getDiscountAmount())
+                        .subtotal(item.getTotalAmount())
+                        .build())
+                .toList();
+
+        Map<String, Object> partyFields = new LinkedHashMap<>();
+        if (customer != null) {
+            partyFields.put("Razón Social", customer.getName());
+            partyFields.put("NIT/CI", customer.getDocumentNumber());
+            if (isNotBlank(customer.getAddress())) {
+                partyFields.put("Dirección", customer.getAddress());
+            }
+            if (isNotBlank(customer.getPhone())) {
+                partyFields.put("Teléfono", customer.getPhone());
+            }
+        }
+
+        Map<String, Object> metaFields = new LinkedHashMap<>();
+        metaFields.put("Fecha", PDF_DATE.format(invoice.getCreatedAt()));
+        metaFields.put("Método de Pago", PAYMENT_METHOD_ES.getOrDefault(invoice.getPaymentMethod(), invoice.getPaymentMethod()));
+        if (invoice.getDueDate() != null) {
+            metaFields.put("Vence", PDF_DATE.format(invoice.getDueDate()));
+        }
+        metaFields.put("Documento", invoice.getSeries() + "-" + invoice.getNumber());
+
+        Map<String, Object> model = new HashMap<>();
+        model.put("company", company);
+        model.put("docTitle", "NOTA DE VENTA");
+        model.put("priceColumnLabel", "Precio");
+        model.put("total", invoice.getTotalAmount());
+        model.put("notes", "");
+        model.put("lines", lines);
+        model.put("partyFields", partyFields);
+        model.put("metaFields", metaFields);
+        model.put("amountInWords", AmountInWordsEs.format(invoice.getTotalAmount(), company.getCurrencySymbol()));
+        model.put("sellerName", invoice.getCreatedBy() != null ? invoice.getCreatedBy().getFullName() : "");
+        model.put("leftRoleLabel", "Cajero");
+        model.put("rightRoleLabel", "Vendedor");
+
+        return pdfDocumentService.render("money-document", model);
+    }
+
+    private static boolean isNotBlank(String value) {
+        return value != null && !value.isBlank();
     }
 
     @Transactional
@@ -862,8 +997,9 @@ public class SalesService {
                 .map(u -> u.getFullName() != null && !u.getFullName().isBlank() ? u.getFullName() : u.getUsername())
                 .orElse("Admin");
 
-        long count = priceAdjustmentRepository.countByCompanyId(companyId) + 1;
-        String folio = String.format("PR-%05d", count);
+        // Was count()+1: two concurrent requests can read the same count before either inserts,
+        // producing duplicate folios. DocumentSequenceService row-locks the counter instead.
+        String folio = documentSequenceService.nextFolio(companyId, DocumentType.PRICE_ADJUSTMENT);
 
         PriceAdjustment pa = PriceAdjustment.builder()
                 .company(company)
@@ -1140,15 +1276,24 @@ public class SalesService {
                 .build();
     }
 
+    /**
+     * Non-reserving preview — same counters {@link #processCheckout}/{@link #createQuotation}
+     * actually advance, just peeked rather than incremented (see
+     * {@link DocumentSequenceService#peekNextFolio}), so this finally predicts the real next
+     * folio instead of drifting from it. Never treat the result as reserved: re-fetch right
+     * before checkout if the number must be exact.
+     * <p>
+     * The "V-" prefix here is this preview's own display convention — the invoice's real folio is
+     * {@code series + "-" + number} (e.g. {@code B001-00042}), not {@code V-00042}; only the
+     * underlying sequential number is shared between the two.
+     */
     @Transactional(readOnly = true)
     public NextFolioPreviewDto getNextFolioPreview() {
         Long companyId = SecurityUtils.getCurrentCompanyId();
-        long salesCount = invoiceRepository.countByCompanyId(companyId) + 1;
-        long quotationCount = salesOrderRepository.countByCompanyId(companyId) + 1;
 
         return NextFolioPreviewDto.builder()
-                .sale(String.format("V-%05d", salesCount))
-                .quotation(String.format("COT-%05d", quotationCount))
+                .sale(String.format("V-%05d", documentSequenceService.peekNext(companyId, DocumentType.SALE)))
+                .quotation(documentSequenceService.peekNextFolio(companyId, DocumentType.QUOTATION))
                 .build();
     }
 
