@@ -17,6 +17,7 @@ public class StockTransferItemDto {
     private String productSku;
     private String sku;
     private String productName;
+    private String unitName;
     private BigDecimal quantityRequested;
     private BigDecimal quantityReceived;
     private BigDecimal quantity;

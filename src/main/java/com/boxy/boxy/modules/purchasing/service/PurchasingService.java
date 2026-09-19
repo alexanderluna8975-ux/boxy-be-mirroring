@@ -2,7 +2,12 @@ package com.boxy.boxy.modules.purchasing.service;
 
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
+import com.boxy.boxy.core.pdf.AmountInWordsEs;
+import com.boxy.boxy.core.pdf.PdfDocumentService;
+import com.boxy.boxy.core.pdf.PdfLineItem;
 import com.boxy.boxy.core.security.SecurityUtils;
+import com.boxy.boxy.core.sequence.DocumentSequenceService;
+import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.modules.administration.entity.Branch;
 import com.boxy.boxy.modules.administration.entity.Company;
 import com.boxy.boxy.modules.administration.entity.User;
@@ -29,7 +34,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -47,6 +57,13 @@ public class PurchasingService {
     private final StockMovementRepository stockMovementRepository;
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
+    private final DocumentSequenceService documentSequenceService;
+    private final PdfDocumentService pdfDocumentService;
+
+    /** For `LocalDate` fields (issue/expected-delivery date) — no time-of-day to show. */
+    private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy");
+    /** For `Instant` fields (e.g. received date/time). Bolivia has one fixed offset (UTC-4, no DST). */
+    private static final DateTimeFormatter PDF_DATE_TIME = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm").withZone(ZoneId.of("America/La_Paz"));
 
     // --- SUPPLIERS ---
 
@@ -168,6 +185,63 @@ public class PurchasingService {
         return toPoDto(po);
     }
 
+    @Transactional(readOnly = true)
+    public byte[] generatePurchaseOrderPdf(Long id) {
+        PurchaseOrder po = purchaseOrderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
+        Company company = po.getCompany();
+        Supplier supplier = po.getSupplier();
+
+        List<PdfLineItem> lines = po.getItems().stream()
+                .map(item -> PdfLineItem.builder()
+                        .sku(item.getProduct().getSku())
+                        .description(item.getProduct().getName())
+                        .unitName(item.getProduct().getUnit() != null ? item.getProduct().getUnit().getName() : "")
+                        .quantity(item.getQuantityOrdered())
+                        .unitPrice(item.getUnitCost())
+                        .discount(BigDecimal.ZERO)
+                        .subtotal(item.getTotalCost())
+                        .build())
+                .toList();
+
+        Map<String, Object> partyFields = new LinkedHashMap<>();
+        if (supplier != null) {
+            partyFields.put("Proveedor", supplier.getName());
+            if (isNotBlank(supplier.getTaxId())) {
+                partyFields.put("NIT/CI", supplier.getTaxId());
+            }
+            if (isNotBlank(supplier.getAddress())) {
+                partyFields.put("Dirección", supplier.getAddress());
+            }
+            if (isNotBlank(supplier.getPhone())) {
+                partyFields.put("Teléfono", supplier.getPhone());
+            }
+        }
+
+        Map<String, Object> metaFields = new LinkedHashMap<>();
+        metaFields.put("Fecha de Emisión", PDF_DATE.format(po.getIssueDate()));
+        if (po.getExpectedDeliveryDate() != null) {
+            metaFields.put("Entrega Estimada", PDF_DATE.format(po.getExpectedDeliveryDate()));
+        }
+        metaFields.put("N.º de Orden", po.getOrderNumber());
+
+        Map<String, Object> model = new HashMap<>();
+        model.put("company", company);
+        model.put("docTitle", "ORDEN DE COMPRA");
+        model.put("priceColumnLabel", "Costo");
+        model.put("total", po.getTotalAmount());
+        model.put("notes", po.getNotes() != null ? po.getNotes() : "");
+        model.put("lines", lines);
+        model.put("partyFields", partyFields);
+        model.put("metaFields", metaFields);
+        model.put("amountInWords", AmountInWordsEs.format(po.getTotalAmount(), company.getCurrencySymbol()));
+        model.put("sellerName", po.getCreatedBy() != null ? po.getCreatedBy().getFullName() : "");
+        model.put("leftRoleLabel", "Solicitado por");
+        model.put("rightRoleLabel", "Autorizado por");
+
+        return pdfDocumentService.render("money-document", model);
+    }
+
     @Transactional
     public PurchaseOrderDto createPurchaseOrder(CreatePurchaseOrderRequest request) {
         Long companyId = SecurityUtils.getCurrentCompanyId();
@@ -184,7 +258,7 @@ public class PurchasingService {
         User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.getCurrentUserId())
                 .orElseGet(() -> userRepository.findAll().stream().findFirst().orElseThrow());
 
-        String orderNumber = "PO-" + System.currentTimeMillis();
+        String orderNumber = documentSequenceService.nextFolio(companyId, DocumentType.PURCHASE_ORDER);
 
         BigDecimal subtotal = BigDecimal.ZERO;
         BigDecimal taxTotal = BigDecimal.ZERO;
@@ -342,6 +416,69 @@ public class PurchasingService {
         return toReceiptDto(r);
     }
 
+    @Transactional(readOnly = true)
+    public byte[] generateGoodsReceiptPdf(Long id) {
+        GoodsReceipt receipt = goodsReceiptRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("GoodsReceipt", id));
+        PurchaseOrder po = receipt.getPurchaseOrder();
+        Company company = po != null ? po.getCompany() : null;
+        Supplier supplier = po != null ? po.getSupplier() : null;
+
+        BigDecimal total = BigDecimal.ZERO;
+        List<PdfLineItem> lines = new java.util.ArrayList<>();
+        for (GoodsReceiptItem item : receipt.getItems()) {
+            BigDecimal subtotal = item.getUnitCost().multiply(item.getQuantityReceived());
+            total = total.add(subtotal);
+            lines.add(PdfLineItem.builder()
+                    .sku(item.getProduct().getSku())
+                    .description(item.getProduct().getName())
+                    .unitName(item.getProduct().getUnit() != null ? item.getProduct().getUnit().getName() : "")
+                    .quantity(item.getQuantityReceived())
+                    .unitPrice(item.getUnitCost())
+                    .discount(BigDecimal.ZERO)
+                    .subtotal(subtotal)
+                    .build());
+        }
+
+        Map<String, Object> partyFields = new LinkedHashMap<>();
+        if (supplier != null) {
+            partyFields.put("Proveedor", supplier.getName());
+            if (isNotBlank(supplier.getTaxId())) {
+                partyFields.put("NIT/CI", supplier.getTaxId());
+            }
+        }
+
+        Map<String, Object> metaFields = new LinkedHashMap<>();
+        metaFields.put("Fecha de Recepción", PDF_DATE_TIME.format(receipt.getReceivedDate()));
+        if (po != null) {
+            metaFields.put("Orden de Compra", po.getOrderNumber());
+        }
+        if (isNotBlank(receipt.getSupplierInvoiceNumber())) {
+            metaFields.put("Factura del Proveedor", receipt.getSupplierInvoiceNumber());
+        }
+        metaFields.put("N.º de Recepción", receipt.getReceiptNumber());
+
+        Map<String, Object> model = new HashMap<>();
+        model.put("company", company);
+        model.put("docTitle", "RECEPCIÓN DE MERCADERÍA");
+        model.put("priceColumnLabel", "Costo");
+        model.put("total", total);
+        model.put("notes", receipt.getNotes() != null ? receipt.getNotes() : "");
+        model.put("lines", lines);
+        model.put("partyFields", partyFields);
+        model.put("metaFields", metaFields);
+        model.put("amountInWords", company != null ? AmountInWordsEs.format(total, company.getCurrencySymbol()) : "");
+        model.put("sellerName", receipt.getCreatedBy() != null ? receipt.getCreatedBy().getFullName() : "");
+        model.put("leftRoleLabel", "Entregado por");
+        model.put("rightRoleLabel", "Recibido por");
+
+        return pdfDocumentService.render("money-document", model);
+    }
+
+    private static boolean isNotBlank(String value) {
+        return value != null && !value.isBlank();
+    }
+
     @Transactional
     public GoodsReceiptDto receiveGoods(CreateGoodsReceiptRequest request) {
         PurchaseOrder po = purchaseOrderRepository.findById(request.getPurchaseOrderId())
@@ -357,7 +494,7 @@ public class PurchasingService {
         GoodsReceipt receipt = GoodsReceipt.builder()
                 .purchaseOrder(po)
                 .warehouse(warehouse)
-                .receiptNumber("REC-" + System.currentTimeMillis())
+                .receiptNumber(documentSequenceService.nextFolio(po.getCompany().getId(), DocumentType.GOODS_RECEIPT))
                 .supplierInvoiceNumber(request.getSupplierInvoiceNumber())
                 .notes(request.getNotes())
                 .receivedDate(Instant.now())

@@ -1,5 +1,7 @@
 package com.boxy.boxy.modules.purchasing.service;
 
+import com.boxy.boxy.core.sequence.DocumentSequenceService;
+import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.modules.administration.entity.Branch;
 import com.boxy.boxy.modules.administration.entity.Company;
 import com.boxy.boxy.modules.administration.entity.User;
@@ -62,6 +64,7 @@ class PurchasingServiceTest {
     @Mock private StockMovementRepository stockMovementRepository;
     @Mock private UserRepository userRepository;
     @Mock private CompanyRepository companyRepository;
+    @Mock private DocumentSequenceService documentSequenceService;
 
     @InjectMocks
     private PurchasingService purchasingService;
@@ -96,12 +99,15 @@ class PurchasingServiceTest {
         when(branchRepository.findByIdAndDeletedAtIsNull(any())).thenReturn(Optional.of(branch));
         when(supplierRepository.findByIdAndDeletedAtIsNull(any())).thenReturn(Optional.of(supplier));
         when(userRepository.findByIdAndDeletedAtIsNull(any())).thenReturn(Optional.of(user));
+        when(documentSequenceService.nextFolio(1L, DocumentType.PURCHASE_ORDER)).thenReturn("PO-00001");
         when(purchaseOrderRepository.save(any(PurchaseOrder.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         PurchaseOrderDto result = purchasingService.createPurchaseOrder(request);
 
         assertThat(result.getExpectedDeliveryDate()).isEqualTo(expected);
+        // Correlative, sourced from DocumentSequenceService — not System.currentTimeMillis().
+        assertThat(result.getOrderNumber()).isEqualTo("PO-00001");
     }
 
     /**
@@ -117,6 +123,7 @@ class PurchasingServiceTest {
         Product product = Product.builder().id(10L).sku("SKU-1").name("Producto 1").build();
         Warehouse warehouse = Warehouse.builder().id(1L).build();
         User user = User.builder().id(1L).build();
+        Company company = Company.builder().id(1L).build();
 
         PurchaseOrderItem poItem = PurchaseOrderItem.builder()
                 .product(product)
@@ -125,6 +132,7 @@ class PurchasingServiceTest {
                 .build();
         PurchaseOrder po = PurchaseOrder.builder()
                 .id(1L)
+                .company(company)
                 .orderNumber("PO-1")
                 .items(new ArrayList<>(List.of(poItem)))
                 .build();
@@ -144,6 +152,7 @@ class PurchasingServiceTest {
         when(userRepository.findByIdAndDeletedAtIsNull(any())).thenReturn(Optional.of(user));
         when(productRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(product));
         when(stockLevelRepository.findForUpdate(any(), any())).thenReturn(Optional.empty());
+        when(documentSequenceService.nextFolio(1L, DocumentType.GOODS_RECEIPT)).thenReturn("REC-00001");
         when(goodsReceiptRepository.save(any(GoodsReceipt.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -151,6 +160,8 @@ class PurchasingServiceTest {
 
         assertThat(result.getLines()).hasSize(1);
         assertThat(result.getLines().get(0).getUnitCost()).isEqualByComparingTo(expectedUnitCost);
+        // Correlative, sourced from DocumentSequenceService — not System.currentTimeMillis().
+        assertThat(result.getFolio()).isEqualTo("REC-00001");
     }
 
     /**

@@ -5,6 +5,8 @@ import com.boxy.boxy.core.exception.InsufficientStockException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
 import com.boxy.boxy.core.security.SecurityUtils;
 import com.boxy.boxy.core.security.UserPrincipal;
+import com.boxy.boxy.core.sequence.DocumentSequenceService;
+import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.modules.administration.entity.Branch;
 import com.boxy.boxy.modules.administration.entity.Company;
 import com.boxy.boxy.modules.administration.entity.User;
@@ -16,8 +18,11 @@ import com.boxy.boxy.modules.administration.service.AuditLogService;
 import com.boxy.boxy.modules.catalog.entity.Product;
 import com.boxy.boxy.modules.catalog.repository.ProductRepository;
 import com.boxy.boxy.modules.inventory.dto.CreateStockTransferRequest;
+import com.boxy.boxy.modules.inventory.dto.ReceiveTransferRequest;
 import com.boxy.boxy.modules.inventory.dto.StockTransferDto;
+import com.boxy.boxy.modules.inventory.dto.UpdateTransferLineRequest;
 import com.boxy.boxy.modules.inventory.entity.StockLevel;
+import com.boxy.boxy.modules.inventory.entity.StockMovement;
 import com.boxy.boxy.modules.inventory.entity.StockTransfer;
 import com.boxy.boxy.modules.inventory.entity.StockTransferItem;
 import com.boxy.boxy.modules.inventory.entity.TransferStatus;
@@ -30,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Answers;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -46,17 +52,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Covers the transfer state machine — the P0 bug this whole pass started from was
- * {@code dispatchTransfer} requiring {@code REQUESTED} while {@code approveTransfer} left the
- * transfer at {@code APPROVED}, so every transfer got stuck right after approval. These tests
- * pin the corrected transitions down so that regression can't come back silently.
+ * Covers the transfer state machine. {@code approveTransfer} now folds in what used to be a
+ * separate {@code dispatchTransfer} step (no more double action to send — approving moves stock
+ * immediately and lands on {@code IN_TRANSIT}), and {@code receiveTransfer} accepts a per-line
+ * actual-received quantity instead of blindly trusting what shipped.
  */
 @ExtendWith(MockitoExtension.class)
 class InventoryServiceTest {
@@ -77,6 +82,8 @@ class InventoryServiceTest {
     private CompanyRepository companyRepository;
     @Mock
     private AuditLogService auditLogService;
+    @Mock
+    private DocumentSequenceService documentSequenceService;
 
     @InjectMocks
     private InventoryService inventoryService;
@@ -174,6 +181,7 @@ class InventoryServiceTest {
         when(warehouseRepository.findByIdAndBranchCompanyIdAndDeletedAtIsNull(2L, COMPANY_ID)).thenReturn(Optional.of(destination));
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
         when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(product));
+        when(documentSequenceService.nextFolio(COMPANY_ID, DocumentType.TRANSFER)).thenReturn("TRF-00001");
 
         assertThatThrownBy(() -> inventoryService.createTransfer(request))
                 .isInstanceOf(BusinessException.class)
@@ -188,6 +196,7 @@ class InventoryServiceTest {
         when(warehouseRepository.findByIdAndBranchCompanyIdAndDeletedAtIsNull(2L, COMPANY_ID)).thenReturn(Optional.of(destination));
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
         when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(product));
+        when(documentSequenceService.nextFolio(COMPANY_ID, DocumentType.TRANSFER)).thenReturn("TRF-00007");
         when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
 
         StockTransferDto dto = inventoryService.createTransfer(request);
@@ -195,9 +204,112 @@ class InventoryServiceTest {
         assertThat(dto.getStatus()).isEqualTo("pending-approval");
         assertThat(dto.getSourceWarehouseId()).isEqualTo(1L);
         assertThat(dto.getDestinationWarehouseId()).isEqualTo(2L);
+        // Correlative, sourced from DocumentSequenceService — not a UUID fragment.
+        assertThat(dto.getFolio()).isEqualTo("TRF-00007");
     }
 
-    // ---- approveTransfer ----
+    // ---- updateTransferLine / deleteTransferLine (inline edit before approval) ----
+
+    @Test
+    void updateTransferLine_onlyFromRequested() {
+        StockTransfer approved = transferInStatus(TransferStatus.APPROVED, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(approved));
+
+        assertThatThrownBy(() -> inventoryService.updateTransferLine(10L, 1L, updateLineRequest(BigDecimal.valueOf(15))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("REQUESTED");
+    }
+
+    @Test
+    void updateTransferLine_correctsTheQuantity() {
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
+        when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StockTransferDto dto = inventoryService.updateTransferLine(10L, 1L, updateLineRequest(BigDecimal.valueOf(15)));
+
+        assertThat(dto.getItems().get(0).getQuantityRequested()).isEqualByComparingTo("15");
+    }
+
+    @Test
+    void updateTransferLine_rejectsZeroOrNegativeQuantity() {
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
+
+        assertThatThrownBy(() -> inventoryService.updateTransferLine(10L, 1L, updateLineRequest(BigDecimal.ZERO)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("greater than zero");
+
+        verify(stockTransferRepository, never()).save(any());
+    }
+
+    @Test
+    void updateTransferLine_rejectsUnknownProduct() {
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
+
+        assertThatThrownBy(() -> inventoryService.updateTransferLine(10L, 99L, updateLineRequest(BigDecimal.TEN)))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    private UpdateTransferLineRequest updateLineRequest(BigDecimal quantity) {
+        UpdateTransferLineRequest request = new UpdateTransferLineRequest();
+        request.setQuantity(quantity);
+        return request;
+    }
+
+    @Test
+    void deleteTransferLine_onlyFromRequested() {
+        StockTransfer approved = transferInStatus(TransferStatus.APPROVED, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(approved));
+
+        assertThatThrownBy(() -> inventoryService.deleteTransferLine(10L, 1L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("REQUESTED");
+    }
+
+    @Test
+    void deleteTransferLine_refusesToRemoveTheLastLine() {
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
+
+        assertThatThrownBy(() -> inventoryService.deleteTransferLine(10L, 1L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("at least one line item");
+
+        verify(stockTransferRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteTransferLine_removesTheLineWhenMoreThanOneRemains() {
+        Product secondProduct = Product.builder().id(2L).company(company).sku("SKU-2").name("Gadget")
+                .costPrice(BigDecimal.ONE).sellingPrice(BigDecimal.valueOf(5)).hasVariants(false).build();
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        requested.getItems().add(StockTransferItem.builder()
+                .id(2L).transfer(requested).product(secondProduct)
+                .quantityRequested(BigDecimal.valueOf(4)).quantityReceived(BigDecimal.ZERO).build());
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
+        when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StockTransferDto dto = inventoryService.deleteTransferLine(10L, 1L);
+
+        assertThat(dto.getItems()).hasSize(1);
+        assertThat(dto.getItems().get(0).getProductId()).isEqualTo(2L);
+    }
+
+    @Test
+    void deleteTransferLine_rejectsUnknownProduct() {
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        requested.getItems().add(StockTransferItem.builder()
+                .id(2L).transfer(requested).product(product)
+                .quantityRequested(BigDecimal.valueOf(4)).quantityReceived(BigDecimal.ZERO).build());
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
+
+        assertThatThrownBy(() -> inventoryService.deleteTransferLine(10L, 99L))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    // ---- approveTransfer (now also dispatches — no separate ship step) ----
 
     @Test
     void approveTransfer_onlyFromRequested() {
@@ -210,69 +322,49 @@ class InventoryServiceTest {
     }
 
     @Test
-    void approveTransfer_setsApprovedByAndAt() {
+    void approveTransfer_dispatchesImmediately_oneActionNotTwo() {
         StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
-        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
-        when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
-
-        StockTransferDto dto = inventoryService.approveTransfer(10L);
-
-        assertThat(dto.getStatus()).isEqualTo("approved");
-        assertThat(requested.getApprovedBy()).isEqualTo(1L);
-        assertThat(requested.getApprovedAt()).isNotNull();
-    }
-
-    // ---- the regression this pass fixes: dispatch must require APPROVED, not REQUESTED ----
-
-    @Test
-    void dispatchTransfer_rejectsFromRequested_theOriginalBug() {
-        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
-        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
-
-        assertThatThrownBy(() -> inventoryService.dispatchTransfer(10L))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("APPROVED");
-    }
-
-    @Test
-    void dispatchTransfer_succeedsFromApproved() {
-        StockTransfer approved = transferInStatus(TransferStatus.APPROVED, BigDecimal.TEN);
         StockLevel stock = StockLevel.builder().id(1L).warehouse(source).product(product)
                 .quantityAvailable(BigDecimal.valueOf(50)).quantityReserved(BigDecimal.ZERO)
                 .quantityInTransit(BigDecimal.ZERO).build();
-        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(approved));
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
         when(stockLevelRepository.findForUpdate(1L, 1L)).thenReturn(Optional.of(stock));
         when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        StockTransferDto dto = inventoryService.dispatchTransfer(10L);
+        StockTransferDto dto = inventoryService.approveTransfer(10L);
 
+        // Status lands straight on "shipped" (IN_TRANSIT) — "approved" is never the persisted
+        // status a user has to act on a second time.
         assertThat(dto.getStatus()).isEqualTo("shipped");
+        assertThat(requested.getApprovedBy()).isEqualTo(1L);
+        assertThat(requested.getApprovedAt()).isNotNull();
+        assertThat(requested.getDispatchedBy()).isEqualTo(1L);
+        assertThat(requested.getDispatchedAt()).isEqualTo(requested.getApprovedAt());
         assertThat(stock.getQuantityAvailable()).isEqualByComparingTo("40");
         assertThat(stock.getQuantityInTransit()).isEqualByComparingTo("10");
         verify(stockMovementRepository).save(any());
     }
 
     @Test
-    void dispatchTransfer_rejectsWhenStockRecordMissing() {
-        StockTransfer approved = transferInStatus(TransferStatus.APPROVED, BigDecimal.TEN);
-        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(approved));
+    void approveTransfer_rejectsWhenStockRecordMissing() {
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
         when(stockLevelRepository.findForUpdate(1L, 1L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> inventoryService.dispatchTransfer(10L))
+        assertThatThrownBy(() -> inventoryService.approveTransfer(10L))
                 .isInstanceOf(InsufficientStockException.class);
     }
 
     @Test
-    void dispatchTransfer_rejectsWhenNotEnoughAvailable() {
-        StockTransfer approved = transferInStatus(TransferStatus.APPROVED, BigDecimal.valueOf(100));
+    void approveTransfer_rejectsWhenNotEnoughAvailable() {
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.valueOf(100));
         StockLevel stock = StockLevel.builder().id(1L).warehouse(source).product(product)
                 .quantityAvailable(BigDecimal.TEN).quantityReserved(BigDecimal.ZERO)
                 .quantityInTransit(BigDecimal.ZERO).build();
-        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(approved));
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
         when(stockLevelRepository.findForUpdate(1L, 1L)).thenReturn(Optional.of(stock));
 
-        assertThatThrownBy(() -> inventoryService.dispatchTransfer(10L))
+        assertThatThrownBy(() -> inventoryService.approveTransfer(10L))
                 .isInstanceOf(InsufficientStockException.class);
 
         verify(stockLevelRepository, never()).save(any());
@@ -285,13 +377,13 @@ class InventoryServiceTest {
         StockTransfer approved = transferInStatus(TransferStatus.APPROVED, BigDecimal.TEN);
         when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(approved));
 
-        assertThatThrownBy(() -> inventoryService.receiveTransfer(10L))
+        assertThatThrownBy(() -> inventoryService.receiveTransfer(10L, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("IN_TRANSIT");
     }
 
     @Test
-    void receiveTransfer_movesStockIntoDestination() {
+    void receiveTransfer_nullBody_defaultsEveryLineToFullyReceived() {
         StockTransfer inTransit = transferInStatus(TransferStatus.IN_TRANSIT, BigDecimal.TEN);
         StockLevel sourceStock = StockLevel.builder().id(1L).warehouse(source).product(product)
                 .quantityAvailable(BigDecimal.valueOf(40)).quantityReserved(BigDecimal.ZERO)
@@ -303,11 +395,13 @@ class InventoryServiceTest {
         when(stockLevelRepository.save(any(StockLevel.class))).thenAnswer(inv -> inv.getArgument(0));
         when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        StockTransferDto dto = inventoryService.receiveTransfer(10L);
+        StockTransferDto dto = inventoryService.receiveTransfer(10L, null);
 
         assertThat(dto.getStatus()).isEqualTo("received");
         assertThat(sourceStock.getQuantityInTransit()).isEqualByComparingTo("0");
         assertThat(dto.getItems().get(0).getQuantityReceived()).isEqualByComparingTo("10");
+        // No shortage → no TRANSFER_LOSS entry, only the TRANSFER_IN credit.
+        verify(stockMovementRepository, times(1)).save(any());
     }
 
     @Test
@@ -316,17 +410,125 @@ class InventoryServiceTest {
         when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(inTransit));
         when(stockLevelRepository.findForUpdate(1L, 1L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> inventoryService.receiveTransfer(10L))
+        assertThatThrownBy(() -> inventoryService.receiveTransfer(10L, null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("No stock record at the source warehouse");
     }
 
+    @Test
+    void receiveTransfer_shortageWithoutNote_isRejected() {
+        StockTransfer inTransit = transferInStatus(TransferStatus.IN_TRANSIT, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(inTransit));
+        ReceiveTransferRequest request = shortageRequest(BigDecimal.valueOf(7), null);
+
+        assertThatThrownBy(() -> inventoryService.receiveTransfer(10L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("note is required");
+
+        // Validated before touching anything.
+        verify(stockLevelRepository, never()).findForUpdate(any(), any());
+    }
+
+    @Test
+    void receiveTransfer_shortageWithNote_creditsOnlyWhatArrivedAndLogsTheLoss() {
+        StockTransfer inTransit = transferInStatus(TransferStatus.IN_TRANSIT, BigDecimal.TEN);
+        StockLevel sourceStock = StockLevel.builder().id(1L).warehouse(source).product(product)
+                .quantityAvailable(BigDecimal.valueOf(40)).quantityReserved(BigDecimal.ZERO)
+                .quantityInTransit(BigDecimal.TEN).build();
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(inTransit));
+        when(stockLevelRepository.findForUpdate(1L, 1L)).thenReturn(Optional.of(sourceStock));
+        when(stockLevelRepository.findForUpdate(2L, 1L)).thenReturn(Optional.empty());
+        when(stockLevelRepository.saveAndFlush(any(StockLevel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(stockLevelRepository.save(any(StockLevel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
+        ReceiveTransferRequest request = shortageRequest(BigDecimal.valueOf(7), "Caja dañada en tránsito.");
+
+        StockTransferDto dto = inventoryService.receiveTransfer(10L, request);
+
+        assertThat(dto.getStatus()).isEqualTo("received");
+        // Full shipped amount leaves in-transit either way (arrived or lost).
+        assertThat(sourceStock.getQuantityInTransit()).isEqualByComparingTo("0");
+        assertThat(dto.getItems().get(0).getQuantityReceived()).isEqualByComparingTo("7");
+        assertThat(dto.getReceivingNotes()).isEqualTo("Caja dañada en tránsito.");
+        // TRANSFER_IN (7) + TRANSFER_LOSS (3) — the gap is logged, not silently dropped.
+        ArgumentCaptor<StockMovement> captor = ArgumentCaptor.forClass(StockMovement.class);
+        verify(stockMovementRepository, times(2)).save(captor.capture());
+        StockMovement loss = captor.getAllValues().stream()
+                .filter(m -> "TRANSFER_LOSS".equals(m.getMovementType())).findFirst().orElseThrow();
+        assertThat(loss.getQuantity()).isEqualByComparingTo("-3");
+        assertThat(loss.getNotes()).isEqualTo("Caja dañada en tránsito.");
+    }
+
+    @Test
+    void receiveTransfer_overageWithoutNote_isRejected() {
+        StockTransfer inTransit = transferInStatus(TransferStatus.IN_TRANSIT, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(inTransit));
+        ReceiveTransferRequest request = shortageRequest(BigDecimal.valueOf(11), null);
+
+        assertThatThrownBy(() -> inventoryService.receiveTransfer(10L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("note is required");
+
+        verify(stockLevelRepository, never()).findForUpdate(any(), any());
+    }
+
+    @Test
+    void receiveTransfer_overageWithNote_deductsTheExtraFromSourceAvailableAndLogsIt() {
+        StockTransfer inTransit = transferInStatus(TransferStatus.IN_TRANSIT, BigDecimal.TEN);
+        StockLevel sourceStock = StockLevel.builder().id(1L).warehouse(source).product(product)
+                .quantityAvailable(BigDecimal.valueOf(40)).quantityReserved(BigDecimal.ZERO)
+                .quantityInTransit(BigDecimal.TEN).build();
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(inTransit));
+        when(stockLevelRepository.findForUpdate(1L, 1L)).thenReturn(Optional.of(sourceStock));
+        when(stockLevelRepository.findForUpdate(2L, 1L)).thenReturn(Optional.empty());
+        when(stockLevelRepository.saveAndFlush(any(StockLevel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(stockLevelRepository.save(any(StockLevel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
+        ReceiveTransferRequest request = shortageRequest(BigDecimal.valueOf(12), "Llegaron 2 unidades de más.");
+
+        StockTransferDto dto = inventoryService.receiveTransfer(10L, request);
+
+        assertThat(dto.getStatus()).isEqualTo("received");
+        assertThat(dto.getItems().get(0).getQuantityReceived()).isEqualByComparingTo("12");
+        // Full shipped amount (10) leaves in-transit, then the extra 2 also leaves available.
+        assertThat(sourceStock.getQuantityInTransit()).isEqualByComparingTo("0");
+        assertThat(sourceStock.getQuantityAvailable()).isEqualByComparingTo("38");
+        assertThat(dto.getReceivingNotes()).isEqualTo("Llegaron 2 unidades de más.");
+        // TRANSFER_IN (12) + TRANSFER_OUT (the 2-unit overage) — the extra is logged, not silently absorbed.
+        ArgumentCaptor<StockMovement> captor = ArgumentCaptor.forClass(StockMovement.class);
+        verify(stockMovementRepository, times(2)).save(captor.capture());
+        StockMovement overage = captor.getAllValues().stream()
+                .filter(m -> "TRANSFER_OUT".equals(m.getMovementType())).findFirst().orElseThrow();
+        assertThat(overage.getQuantity()).isEqualByComparingTo("-2");
+        assertThat(overage.getNotes()).isEqualTo("Llegaron 2 unidades de más.");
+    }
+
+    @Test
+    void receiveTransfer_rejectsNegativeReceivedQuantity() {
+        StockTransfer inTransit = transferInStatus(TransferStatus.IN_TRANSIT, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(inTransit));
+        ReceiveTransferRequest request = shortageRequest(BigDecimal.valueOf(-1), "cualquier nota");
+
+        assertThatThrownBy(() -> inventoryService.receiveTransfer(10L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("cannot be negative");
+    }
+
+    private ReceiveTransferRequest shortageRequest(BigDecimal receivedQuantity, String notes) {
+        ReceiveTransferRequest.ReceiveItemRequest line = new ReceiveTransferRequest.ReceiveItemRequest();
+        line.setProductId(1L);
+        line.setQuantityReceived(receivedQuantity);
+        ReceiveTransferRequest request = new ReceiveTransferRequest();
+        request.setItems(List.of(line));
+        request.setNotes(notes);
+        return request;
+    }
+
     // ---- rejectTransfer ----
 
-    @ParameterizedTest
-    @EnumSource(value = TransferStatus.class, names = {"REQUESTED", "APPROVED"})
-    void rejectTransfer_allowedBeforeDispatch(TransferStatus status) {
-        StockTransfer transfer = transferInStatus(status, BigDecimal.TEN);
+    @Test
+    void rejectTransfer_allowedFromRequested() {
+        StockTransfer transfer = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
         when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(transfer));
         when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -335,16 +537,20 @@ class InventoryServiceTest {
         assertThat(dto.getStatus()).isEqualTo("rejected");
     }
 
-    @Test
-    void rejectTransfer_blockedOnceInTransit() {
-        StockTransfer inTransit = transferInStatus(TransferStatus.IN_TRANSIT, BigDecimal.TEN);
-        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(inTransit));
+    // Now that approving dispatches immediately, APPROVED is never a persisted state a real
+    // transfer sits in — but the guard still defends the (unreachable in practice, reachable in
+    // a test) case a row is fabricated in that status, same as it defends IN_TRANSIT.
+    @ParameterizedTest
+    @EnumSource(value = TransferStatus.class, names = {"APPROVED", "IN_TRANSIT"})
+    void rejectTransfer_blockedOnceApprovedOrLater(TransferStatus status) {
+        StockTransfer transfer = transferInStatus(status, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(transfer));
 
         assertThatThrownBy(() -> inventoryService.rejectTransfer(10L))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("dispatched");
+                .hasMessageContaining("already in transit");
 
-        verify(stockTransferRepository, times(0)).save(eq(inTransit));
+        verify(stockTransferRepository, times(0)).save(eq(transfer));
     }
 
     // ---- multi-tenant isolation ----

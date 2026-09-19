@@ -106,6 +106,16 @@ public class PurchasingController {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.getPurchaseOrderById(id)));
     }
 
+    @GetMapping("/orders/{id}/pdf")
+    @Operation(summary = "Download the purchase order as a printable PDF")
+    public ResponseEntity<byte[]> getPurchaseOrderPdf(@PathVariable Long id) {
+        byte[] pdf = purchasingService.generatePurchaseOrderPdf(id);
+        return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"orden-compra-" + id + ".pdf\"")
+                .body(pdf);
+    }
+
     @PostMapping("/orders")
     @Operation(summary = "Create a new purchase order")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> createPurchaseOrder(@Valid @RequestBody CreatePurchaseOrderRequest request) {
@@ -171,6 +181,16 @@ public class PurchasingController {
     @Operation(summary = "Get goods receipt by ID")
     public ResponseEntity<ApiResponse<GoodsReceiptDto>> getGoodsReceiptById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.getGoodsReceiptById(id)));
+    }
+
+    @GetMapping({"/goods-receipts/{id}/pdf", "/receiving/{id}/pdf"})
+    @Operation(summary = "Download the goods receipt as a printable PDF")
+    public ResponseEntity<byte[]> getGoodsReceiptPdf(@PathVariable Long id) {
+        byte[] pdf = purchasingService.generateGoodsReceiptPdf(id);
+        return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"recepcion-" + id + ".pdf\"")
+                .body(pdf);
     }
 
     @GetMapping("/receiving/pending")

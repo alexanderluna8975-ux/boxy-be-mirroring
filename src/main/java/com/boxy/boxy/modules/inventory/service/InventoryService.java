@@ -3,7 +3,10 @@ package com.boxy.boxy.modules.inventory.service;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.InsufficientStockException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
+import com.boxy.boxy.core.pdf.PdfDocumentService;
 import com.boxy.boxy.core.security.SecurityUtils;
+import com.boxy.boxy.core.sequence.DocumentSequenceService;
+import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.core.web.DateFilterParser;
 import com.boxy.boxy.modules.administration.entity.Company;
 import com.boxy.boxy.modules.administration.service.AuditLogService;
@@ -26,11 +29,16 @@ import com.boxy.boxy.modules.inventory.repository.StockTransferRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -77,6 +85,11 @@ public class InventoryService {
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
     private final AuditLogService auditLogService;
+    private final DocumentSequenceService documentSequenceService;
+    private final PdfDocumentService pdfDocumentService;
+
+    /** Bolivia has one fixed offset (UTC-4, no DST) — same zone used for every generated PDF's dates. */
+    private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm").withZone(ZoneId.of("America/La_Paz"));
 
     @Transactional(readOnly = true)
     public List<StockLevelDto> getStockLevelsByWarehouse(Long warehouseId) {
@@ -130,9 +143,10 @@ public class InventoryService {
         User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.requireCurrentUserId())
                 .orElseThrow(() -> new BusinessException("UNAUTHORIZED", "User not found"));
 
-        // UUID-derived rather than System.currentTimeMillis(): two requests in the same
-        // millisecond used to collide on the UNIQUE transfer_number column.
-        String transferNumber = "TRF-" + java.util.UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        // Correlative, not UUID/timestamp-derived: DocumentSequenceService row-locks a per-company
+        // counter (SELECT ... FOR UPDATE), so concurrent requests in the same millisecond no
+        // longer collide on the UNIQUE transfer_number column — they just queue for the lock.
+        String transferNumber = documentSequenceService.nextFolio(companyId, DocumentType.TRANSFER);
 
         StockTransfer transfer = StockTransfer.builder()
                 .company(company)
@@ -170,84 +184,154 @@ public class InventoryService {
         return toTransferDto(saved);
     }
 
+    /**
+     * Corrects a single line's mistyped quantity, inline, before approval — REQUESTED only, since
+     * once {@link #approveTransfer} runs, stock has already moved against the original quantity
+     * and a plain field edit would silently desync from the Kardex. Once shipped, "Enviado" is
+     * closed to edits — the receiving side only ever corrects "Recibido" (see
+     * {@link #receiveTransfer}), which can land under or over what shipped instead.
+     */
     @Transactional
-    public StockTransferDto dispatchTransfer(Long transferId) {
+    public StockTransferDto updateTransferLine(Long transferId, Long productId, UpdateTransferLineRequest request) {
         StockTransfer transfer = findOwnedTransfer(transferId);
-
-        if (transfer.getStatus() != TransferStatus.APPROVED) {
-            throw new BusinessException("INVALID_STATUS", "Only APPROVED transfers can be dispatched.");
+        if (transfer.getStatus() != TransferStatus.REQUESTED) {
+            throw new BusinessException("INVALID_STATUS",
+                    "Only REQUESTED transfers can have their quantities edited; once approved, stock is already in transit.");
+        }
+        if (request == null || request.getQuantity() == null || request.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("INVALID_QUANTITY", "Transfer quantity must be greater than zero.");
         }
 
-        for (StockTransferItem item : transfer.getItems()) {
-            StockLevel stock = stockLevelRepository.findForUpdate(transfer.getSourceWarehouse().getId(), item.getProduct().getId())
-                    .orElseThrow(() -> new InsufficientStockException(item.getProduct().getSku(), item.getProduct().getName(), 0, item.getQuantityRequested().doubleValue()));
-
-            if (stock.getQuantityAvailable().compareTo(item.getQuantityRequested()) < 0) {
-                throw new InsufficientStockException(item.getProduct().getSku(), item.getProduct().getName(),
-                        stock.getQuantityAvailable().doubleValue(), item.getQuantityRequested().doubleValue());
-            }
-
-            stock.setQuantityAvailable(stock.getQuantityAvailable().subtract(item.getQuantityRequested()));
-            stock.setQuantityInTransit(stock.getQuantityInTransit().add(item.getQuantityRequested()));
-            stockLevelRepository.save(stock);
-
-            // Record Kardex movement
-            StockMovement movement = StockMovement.builder()
-                    .warehouse(transfer.getSourceWarehouse())
-                    .product(item.getProduct())
-                    .movementType("TRANSFER_OUT")
-                    .quantity(item.getQuantityRequested().negate())
-                    .unitCost(item.getProduct().getCostPrice())
-                    .balanceAfter(stock.getQuantityAvailable())
-                    .referenceType("TRANSFER")
-                    .referenceId(String.valueOf(transfer.getId()))
-                    .notes("Dispatched transfer to " + transfer.getDestinationWarehouse().getName())
-                    .createdBy(transfer.getRequestedBy())
-                    .build();
-            stockMovementRepository.save(movement);
-        }
-
-        transfer.setStatus(TransferStatus.IN_TRANSIT);
-        transfer.setDispatchedBy(SecurityUtils.requireCurrentUserId());
-        transfer.setDispatchedAt(Instant.now());
+        StockTransferItem item = findOwnedTransferItem(transfer, productId);
+        BigDecimal previous = item.getQuantityRequested();
+        item.setQuantityRequested(request.getQuantity());
 
         StockTransfer saved = stockTransferRepository.save(transfer);
-        auditLogService.record("Transferencia enviada", "Transferencia", String.valueOf(saved.getId()),
-                saved.getTransferNumber(), TransferStatus.APPROVED.name(), TransferStatus.IN_TRANSIT.name());
+        auditLogService.record("Cantidad de transferencia editada", "Transferencia", String.valueOf(saved.getId()),
+                saved.getTransferNumber(),
+                item.getProduct().getSku() + ": " + previous,
+                item.getProduct().getSku() + ": " + request.getQuantity());
         return toTransferDto(saved);
     }
 
+    /**
+     * Removes a product line before approval — REQUESTED only, same reasoning as
+     * {@link #updateTransferLine}. Refuses to remove the last remaining line: an empty transfer
+     * isn't a valid state to leave pending — reject the whole transfer instead.
+     */
     @Transactional
-    public StockTransferDto receiveTransfer(Long transferId) {
+    public StockTransferDto deleteTransferLine(Long transferId, Long productId) {
+        StockTransfer transfer = findOwnedTransfer(transferId);
+        if (transfer.getStatus() != TransferStatus.REQUESTED) {
+            throw new BusinessException("INVALID_STATUS",
+                    "Only REQUESTED transfers can have lines removed; once approved, stock is already in transit.");
+        }
+        if (transfer.getItems().size() <= 1) {
+            throw new BusinessException("EMPTY_TRANSFER",
+                    "A transfer must include at least one line item — reject the transfer instead of removing its last line.");
+        }
+
+        StockTransferItem item = findOwnedTransferItem(transfer, productId);
+        transfer.getItems().remove(item);
+
+        StockTransfer saved = stockTransferRepository.save(transfer);
+        auditLogService.record("Producto quitado de transferencia", "Transferencia", String.valueOf(saved.getId()),
+                saved.getTransferNumber(), item.getProduct().getSku(), null);
+        return toTransferDto(saved);
+    }
+
+    private StockTransferItem findOwnedTransferItem(StockTransfer transfer, Long productId) {
+        return transfer.getItems().stream()
+                .filter(candidate -> candidate.getProduct().getId().equals(productId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("StockTransferItem", productId));
+    }
+
+    /**
+     * Receives a transfer, trusting each line's ACTUAL received quantity (defaulting to what
+     * shipped when a line is omitted — an all-correct receive still needs no input). "Enviado" is
+     * never touched here — it's whatever {@link #updateTransferLine} last left it at while
+     * REQUESTED. A line that comes up short OR over what shipped requires {@code request.notes} to
+     * be set: a shortfall is written as a {@code TRANSFER_LOSS} Kardex entry at the source, an
+     * overage as an extra {@code TRANSFER_OUT} (more physically left the source than the system
+     * had recorded) — either way the discrepancy never just vanishes untracked, same double-entry
+     * principle every other movement type follows.
+     */
+    @Transactional
+    public StockTransferDto receiveTransfer(Long transferId, ReceiveTransferRequest request) {
         StockTransfer transfer = findOwnedTransfer(transferId);
 
         if (transfer.getStatus() != TransferStatus.IN_TRANSIT) {
             throw new BusinessException("INVALID_STATUS", "Only IN_TRANSIT transfers can be received.");
         }
 
+        Map<Long, BigDecimal> receivedByProduct = new HashMap<>();
+        if (request != null && request.getItems() != null) {
+            for (ReceiveTransferRequest.ReceiveItemRequest line : request.getItems()) {
+                if (line.getProductId() != null && line.getQuantityReceived() != null) {
+                    receivedByProduct.put(line.getProductId(), line.getQuantityReceived());
+                }
+            }
+        }
+        String notes = request != null ? request.getNotes() : null;
+
+        // Pass 1 — validate every line before touching any stock, so a bad line (negative, or a
+        // missing note on a discrepancy) fails the whole request cleanly instead of leaving a
+        // partially-applied receive for @Transactional to unwind.
+        boolean hasDiscrepancy = false;
         for (StockTransferItem item : transfer.getItems()) {
-            // Deduct in-transit at source — same row the dispatch step locked and incremented,
-            // so it must already exist; a missing row here means the two have drifted apart.
+            BigDecimal sent = item.getQuantityRequested();
+            BigDecimal received = receivedByProduct.getOrDefault(item.getProduct().getId(), sent);
+
+            if (received.compareTo(BigDecimal.ZERO) < 0) {
+                throw new BusinessException("INVALID_QUANTITY",
+                        "Received quantity for '" + item.getProduct().getSku() + "' cannot be negative.");
+            }
+            if (received.compareTo(sent) != 0) {
+                hasDiscrepancy = true;
+            }
+        }
+        if (hasDiscrepancy && (notes == null || notes.isBlank())) {
+            throw new BusinessException("RECEIVING_NOTE_REQUIRED",
+                    "A note is required when the received quantity differs from what was shipped.",
+                    HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+
+        // Pass 2 — apply.
+        for (StockTransferItem item : transfer.getItems()) {
+            BigDecimal sent = item.getQuantityRequested();
+            BigDecimal received = receivedByProduct.getOrDefault(item.getProduct().getId(), sent);
+
+            // Deduct in-transit at source for the FULL shipped amount — same row the approve step
+            // locked and incremented, so it must already exist; a missing row here means the two
+            // have drifted apart. It's no longer "in transit" either way, whether it arrived, was
+            // lost, or turned out to be more than what was recorded as shipped.
             StockLevel sourceStock = stockLevelRepository.findForUpdate(transfer.getSourceWarehouse().getId(), item.getProduct().getId())
                     .orElseThrow(() -> new BusinessException("STOCK_INCONSISTENT",
                             "No stock record at the source warehouse for product '" + item.getProduct().getSku() + "'."));
-            sourceStock.setQuantityInTransit(sourceStock.getQuantityInTransit().subtract(item.getQuantityRequested()));
+            sourceStock.setQuantityInTransit(sourceStock.getQuantityInTransit().subtract(sent));
+
+            // An overage means more physically left the source than the system recorded as shipped
+            // — that extra amount was never deducted from "available" at dispatch time, so it has
+            // to come out now, discovered only at receiving.
+            BigDecimal overage = received.subtract(sent).max(BigDecimal.ZERO);
+            if (overage.compareTo(BigDecimal.ZERO) > 0) {
+                sourceStock.setQuantityAvailable(sourceStock.getQuantityAvailable().subtract(overage));
+            }
             stockLevelRepository.save(sourceStock);
 
-            // Increase available at destination
+            // Credit destination with only what actually arrived.
             StockLevel destStock = stockLevelRepository.getOrCreateForUpdate(transfer.getDestinationWarehouse(), item.getProduct());
-
-            destStock.setQuantityAvailable(destStock.getQuantityAvailable().add(item.getQuantityRequested()));
+            destStock.setQuantityAvailable(destStock.getQuantityAvailable().add(received));
             stockLevelRepository.save(destStock);
 
-            item.setQuantityReceived(item.getQuantityRequested());
+            item.setQuantityReceived(received);
 
-            // Record Kardex movement
-            StockMovement movement = StockMovement.builder()
+            StockMovement inMovement = StockMovement.builder()
                     .warehouse(transfer.getDestinationWarehouse())
                     .product(item.getProduct())
                     .movementType("TRANSFER_IN")
-                    .quantity(item.getQuantityRequested())
+                    .quantity(received)
                     .unitCost(item.getProduct().getCostPrice())
                     .balanceAfter(destStock.getQuantityAvailable())
                     .referenceType("TRANSFER")
@@ -255,12 +339,46 @@ public class InventoryService {
                     .notes("Received transfer from " + transfer.getSourceWarehouse().getName())
                     .createdBy(transfer.getRequestedBy())
                     .build();
-            stockMovementRepository.save(movement);
+            stockMovementRepository.save(inMovement);
+
+            BigDecimal shortage = sent.subtract(received).max(BigDecimal.ZERO);
+            if (shortage.compareTo(BigDecimal.ZERO) > 0) {
+                StockMovement lossMovement = StockMovement.builder()
+                        .warehouse(transfer.getSourceWarehouse())
+                        .product(item.getProduct())
+                        .movementType("TRANSFER_LOSS")
+                        .quantity(shortage.negate())
+                        .unitCost(item.getProduct().getCostPrice())
+                        .balanceAfter(sourceStock.getQuantityAvailable())
+                        .referenceType("TRANSFER")
+                        .referenceId(String.valueOf(transfer.getId()))
+                        .notes(notes)
+                        .createdBy(transfer.getRequestedBy())
+                        .build();
+                stockMovementRepository.save(lossMovement);
+            } else if (overage.compareTo(BigDecimal.ZERO) > 0) {
+                StockMovement overageMovement = StockMovement.builder()
+                        .warehouse(transfer.getSourceWarehouse())
+                        .product(item.getProduct())
+                        .movementType("TRANSFER_OUT")
+                        .quantity(overage.negate())
+                        .unitCost(item.getProduct().getCostPrice())
+                        .balanceAfter(sourceStock.getQuantityAvailable())
+                        .referenceType("TRANSFER")
+                        .referenceId(String.valueOf(transfer.getId()))
+                        .notes(notes)
+                        .createdBy(transfer.getRequestedBy())
+                        .build();
+                stockMovementRepository.save(overageMovement);
+            }
         }
 
         transfer.setStatus(TransferStatus.RECEIVED);
         transfer.setReceivedBy(SecurityUtils.requireCurrentUserId());
         transfer.setReceivedAt(Instant.now());
+        if (notes != null && !notes.isBlank()) {
+            transfer.setReceivingNotes(notes);
+        }
 
         StockTransfer saved = stockTransferRepository.save(transfer);
         auditLogService.record("Transferencia recibida", "Transferencia", String.valueOf(saved.getId()),
@@ -331,28 +449,109 @@ public class InventoryService {
         return toTransferDto(findOwnedTransfer(id));
     }
 
+    /** Only meaningful once shipped — before that there's nothing to hand the driver. */
+    @Transactional(readOnly = true)
+    public byte[] generateTransferPdf(Long id) {
+        StockTransfer transfer = findOwnedTransfer(id);
+
+        List<Map<String, Object>> lines = transfer.getItems().stream()
+                .map(item -> {
+                    Map<String, Object> line = new HashMap<>();
+                    line.put("sku", item.getProduct().getSku());
+                    line.put("productName", item.getProduct().getName());
+                    line.put("quantitySent", item.getQuantityRequested());
+                    line.put("quantityReceived", transfer.getStatus() == TransferStatus.RECEIVED ? item.getQuantityReceived() : null);
+                    return line;
+                })
+                .toList();
+
+        Map<String, Object> partyFields = new LinkedHashMap<>();
+        partyFields.put("Almacén Destino", transfer.getDestinationWarehouse().getName());
+
+        Map<String, Object> metaFields = new LinkedHashMap<>();
+        metaFields.put("Folio", transfer.getTransferNumber());
+        metaFields.put("Almacén Origen", transfer.getSourceWarehouse().getName());
+        if (transfer.getDispatchedAt() != null) {
+            metaFields.put("Fecha de Envío", PDF_DATE.format(transfer.getDispatchedAt()));
+        }
+
+        Map<String, Object> model = new HashMap<>();
+        model.put("company", transfer.getCompany());
+        model.put("folio", transfer.getTransferNumber());
+        model.put("partyFields", partyFields);
+        model.put("metaFields", metaFields);
+        model.put("notes", transfer.getNotes() != null ? transfer.getNotes() : "");
+        model.put("requestedByName", transfer.getRequestedBy() != null ? transfer.getRequestedBy().getFullName() : "");
+        model.put("receivedByName", transfer.getStatus() == TransferStatus.RECEIVED
+                ? userRepository.findByIdAndDeletedAtIsNull(transfer.getReceivedBy()).map(User::getFullName).orElse("")
+                : "");
+        model.put("lines", lines);
+
+        return pdfDocumentService.render("transfer-note", model);
+    }
+
+    /**
+     * Approving now IS dispatching — one action, not two. Moves stock out of the source
+     * immediately (same validation/Kardex logic the old, separate {@code dispatchTransfer} used
+     * to run) and lands straight on {@code IN_TRANSIT}; {@code APPROVED} is still recorded via
+     * {@code approvedBy}/{@code approvedAt} for the audit trail, it's just never the persisted
+     * {@code status} on its own anymore.
+     */
     @Transactional
     public StockTransferDto approveTransfer(Long id) {
         StockTransfer t = findOwnedTransfer(id);
         if (t.getStatus() != TransferStatus.REQUESTED) {
             throw new BusinessException("INVALID_STATUS", "Only REQUESTED transfers can be approved.");
         }
-        TransferStatus previousStatus = t.getStatus();
-        t.setStatus(TransferStatus.APPROVED);
-        t.setApprovedBy(SecurityUtils.requireCurrentUserId());
-        t.setApprovedAt(Instant.now());
+
+        for (StockTransferItem item : t.getItems()) {
+            StockLevel stock = stockLevelRepository.findForUpdate(t.getSourceWarehouse().getId(), item.getProduct().getId())
+                    .orElseThrow(() -> new InsufficientStockException(item.getProduct().getSku(), item.getProduct().getName(), 0, item.getQuantityRequested().doubleValue()));
+
+            if (stock.getQuantityAvailable().compareTo(item.getQuantityRequested()) < 0) {
+                throw new InsufficientStockException(item.getProduct().getSku(), item.getProduct().getName(),
+                        stock.getQuantityAvailable().doubleValue(), item.getQuantityRequested().doubleValue());
+            }
+
+            stock.setQuantityAvailable(stock.getQuantityAvailable().subtract(item.getQuantityRequested()));
+            stock.setQuantityInTransit(stock.getQuantityInTransit().add(item.getQuantityRequested()));
+            stockLevelRepository.save(stock);
+
+            StockMovement movement = StockMovement.builder()
+                    .warehouse(t.getSourceWarehouse())
+                    .product(item.getProduct())
+                    .movementType("TRANSFER_OUT")
+                    .quantity(item.getQuantityRequested().negate())
+                    .unitCost(item.getProduct().getCostPrice())
+                    .balanceAfter(stock.getQuantityAvailable())
+                    .referenceType("TRANSFER")
+                    .referenceId(String.valueOf(t.getId()))
+                    .notes("Dispatched transfer to " + t.getDestinationWarehouse().getName())
+                    .createdBy(t.getRequestedBy())
+                    .build();
+            stockMovementRepository.save(movement);
+        }
+
+        Long actorId = SecurityUtils.requireCurrentUserId();
+        Instant now = Instant.now();
+        t.setStatus(TransferStatus.IN_TRANSIT);
+        t.setApprovedBy(actorId);
+        t.setApprovedAt(now);
+        t.setDispatchedBy(actorId);
+        t.setDispatchedAt(now);
+
         StockTransfer saved = stockTransferRepository.save(t);
-        auditLogService.record("Transferencia aprobada", "Transferencia", String.valueOf(saved.getId()),
-                saved.getTransferNumber(), previousStatus.name(), TransferStatus.APPROVED.name());
+        auditLogService.record("Transferencia aprobada y enviada", "Transferencia", String.valueOf(saved.getId()),
+                saved.getTransferNumber(), TransferStatus.REQUESTED.name(), TransferStatus.IN_TRANSIT.name());
         return toTransferDto(saved);
     }
 
     @Transactional
     public StockTransferDto rejectTransfer(Long id) {
         StockTransfer t = findOwnedTransfer(id);
-        if (t.getStatus() != TransferStatus.REQUESTED && t.getStatus() != TransferStatus.APPROVED) {
+        if (t.getStatus() != TransferStatus.REQUESTED) {
             throw new BusinessException("INVALID_STATUS",
-                    "Only REQUESTED or APPROVED transfers can be rejected; once dispatched, stock is already in transit.");
+                    "Only REQUESTED transfers can be rejected; once approved, stock is already in transit.");
         }
         TransferStatus previousStatus = t.getStatus();
         t.setStatus(TransferStatus.REJECTED);
@@ -424,6 +623,7 @@ public class InventoryService {
                         .productSku(i.getProduct().getSku())
                         .sku(i.getProduct().getSku())
                         .productName(i.getProduct().getName())
+                        .unitName(i.getProduct().getUnit() != null ? i.getProduct().getUnit().getName() : "")
                         .quantityRequested(i.getQuantityRequested())
                         .quantityReceived(i.getQuantityReceived())
                         .quantity(i.getQuantityRequested())
@@ -450,6 +650,7 @@ public class InventoryService {
                 .destinationWarehouseCode(t.getDestinationWarehouse().getCode())
                 .status(status)
                 .notes(t.getNotes())
+                .receivingNotes(t.getReceivingNotes())
                 .requestedByName(t.getRequestedBy() != null ? t.getRequestedBy().getFullName() : "Admin")
                 .requestedBy(t.getRequestedBy() != null ? t.getRequestedBy().getFullName() : "Admin")
                 .requestedAt(t.getCreatedAt())

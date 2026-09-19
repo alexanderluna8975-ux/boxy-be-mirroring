@@ -122,6 +122,17 @@ public class InventoryController {
         return ResponseEntity.ok(ApiResponse.ok(inventoryService.getTransferById(id)));
     }
 
+    @GetMapping("/transfers/{id}/pdf")
+    @PreAuthorize("hasAuthority('transfers:view') or hasAuthority('inventory:read') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Download the Nota de Transferencia as a printable PDF")
+    public ResponseEntity<byte[]> getTransferPdf(@PathVariable Long id) {
+        byte[] pdf = inventoryService.generateTransferPdf(id);
+        return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"nota-transferencia-" + id + ".pdf\"")
+                .body(pdf);
+    }
+
     @PostMapping("/transfers")
     @PreAuthorize("hasAuthority('transfers:create') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create an inter-warehouse / inter-branch stock transfer request")
@@ -130,11 +141,30 @@ public class InventoryController {
         return new ResponseEntity<>(ApiResponse.ok(created, "Transfer created successfully"), HttpStatus.CREATED);
     }
 
+    @PatchMapping("/transfers/{id}/lines/{productId}")
+    @PreAuthorize("hasAuthority('transfers:approve') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Correct a single line's quantity, inline, before approval")
+    public ResponseEntity<ApiResponse<StockTransferDto>> updateTransferLine(
+            @PathVariable Long id, @PathVariable Long productId, @RequestBody UpdateTransferLineRequest request) {
+        StockTransferDto updated = inventoryService.updateTransferLine(id, productId, request);
+        return ResponseEntity.ok(ApiResponse.ok(updated, "Transfer line quantity updated"));
+    }
+
+    @DeleteMapping("/transfers/{id}/lines/{productId}")
+    @PreAuthorize("hasAuthority('transfers:approve') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Remove a product line before approval")
+    public ResponseEntity<ApiResponse<StockTransferDto>> deleteTransferLine(
+            @PathVariable Long id, @PathVariable Long productId) {
+        StockTransferDto updated = inventoryService.deleteTransferLine(id, productId);
+        return ResponseEntity.ok(ApiResponse.ok(updated, "Transfer line removed"));
+    }
+
     @PatchMapping({"/transfers/{id}/approve"})
     @PreAuthorize("hasAuthority('transfers:approve') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
-    @Operation(summary = "Approve requested transfer")
+    @Operation(summary = "Approve a requested transfer — immediately dispatches it (locks and deducts stock from origin), no separate ship step")
     public ResponseEntity<ApiResponse<StockTransferDto>> approveTransfer(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(inventoryService.approveTransfer(id)));
+        StockTransferDto approved = inventoryService.approveTransfer(id);
+        return ResponseEntity.ok(ApiResponse.ok(approved, "Transfer approved and in transit"));
     }
 
     @PatchMapping({"/transfers/{id}/reject"})
@@ -144,19 +174,12 @@ public class InventoryController {
         return ResponseEntity.ok(ApiResponse.ok(inventoryService.rejectTransfer(id)));
     }
 
-    @PatchMapping("/transfers/{id}/ship")
-    @PreAuthorize("hasAuthority('transfers:update') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
-    @Operation(summary = "Ship/dispatch requested transfer (locks and deducts stock from origin)")
-    public ResponseEntity<ApiResponse<StockTransferDto>> dispatchTransfer(@PathVariable Long id) {
-        StockTransferDto dispatched = inventoryService.dispatchTransfer(id);
-        return ResponseEntity.ok(ApiResponse.ok(dispatched, "Transfer dispatched and in transit"));
-    }
-
     @PatchMapping("/transfers/{id}/receive")
     @PreAuthorize("hasAuthority('transfers:receive') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
-    @Operation(summary = "Receive transferred items into destination warehouse")
-    public ResponseEntity<ApiResponse<StockTransferDto>> receiveTransfer(@PathVariable Long id) {
-        StockTransferDto received = inventoryService.receiveTransfer(id);
+    @Operation(summary = "Receive transferred items into destination warehouse, recording the actual received quantity per line")
+    public ResponseEntity<ApiResponse<StockTransferDto>> receiveTransfer(
+            @PathVariable Long id, @RequestBody(required = false) ReceiveTransferRequest request) {
+        StockTransferDto received = inventoryService.receiveTransfer(id, request);
         return ResponseEntity.ok(ApiResponse.ok(received, "Transfer received and stock added"));
     }
 }

@@ -43,6 +43,12 @@ spring:
     validate-on-migrate: false
     locations: classpath:db/migration
 
+  thymeleaf:
+    # Templates render PDFs (see core.pdf.PdfDocumentService), not HTTP views — no MVC view
+    # resolution happens through them, so caching only affects how quickly a template edit shows
+    # up in the rendered PDF during development.
+    cache: false
+
   jackson:
     property-naming-strategy: LOWER_CAMEL_CASE
     default-property-inclusion: ALWAYS
