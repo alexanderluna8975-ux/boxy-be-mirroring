@@ -33,13 +33,15 @@ public class SalesController {
     @GetMapping("/customers")
     @Operation(summary = "List all active customers")
     public ResponseEntity<ApiResponse<List<CustomerDto>>> getAllCustomers(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, name = "filter.status") String status,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) Integer pageSize) {
         if (page != null || limit != null || pageSize != null) {
             int p = page != null ? page : 1;
             int l = limit != null ? limit : (pageSize != null ? pageSize : 20);
-            Page<CustomerDto> paged = salesService.getCustomersPaged(PageRequest.of(p - 1, l));
+            Page<CustomerDto> paged = salesService.getCustomersPaged(search, status, PageRequest.of(p - 1, l));
             return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), PageMeta.of(p, l, paged.getTotalElements())));
         }
         return ResponseEntity.ok(ApiResponse.ok(salesService.getAllCustomers()));
@@ -251,17 +253,19 @@ public class SalesController {
     @Operation(summary = "Unified sales & quotations documents list")
     public ResponseEntity<ApiResponse<List<SalesDocumentDto>>> getDocuments(
             @RequestParam(required = false) Long branchId,
-            @RequestParam(required = false) String kind,
+            @RequestParam(required = false, name = "filter.kind") String kind,
             @RequestParam(required = false) String search,
-            @RequestParam(required = false) String paymentMethod,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) String saleStatus,
-            @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false, name = "filter.paymentMethod") String paymentMethod,
+            @RequestParam(required = false, name = "filter.status") String status,
+            @RequestParam(required = false, name = "filter.saleStatus") String saleStatus,
+            @RequestParam(required = false, name = "filter.customerId") Long customerId,
+            @RequestParam(required = false, name = "filter.dateFrom") String dateFrom,
+            @RequestParam(required = false, name = "filter.dateTo") String dateTo,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "20") int pageSize) {
         int finalLimit = Math.max(limit, pageSize);
-        Page<SalesDocumentDto> paged = salesService.getSalesDocuments(branchId, kind, search, paymentMethod, status, saleStatus, customerId, PageRequest.of(page - 1, finalLimit));
+        Page<SalesDocumentDto> paged = salesService.getSalesDocuments(branchId, kind, search, paymentMethod, status, saleStatus, customerId, dateFrom, dateTo, PageRequest.of(page - 1, finalLimit));
         return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), PageMeta.of(page, finalLimit, paged.getTotalElements())));
     }
 
@@ -313,11 +317,14 @@ public class SalesController {
     @GetMapping("/price-adjustments")
     @Operation(summary = "List price adjustments with pagination")
     public ResponseEntity<ApiResponse<List<PriceAdjustmentDto>>> getPriceAdjustments(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, name = "filter.dateFrom") String dateFrom,
+            @RequestParam(required = false, name = "filter.dateTo") String dateTo,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "20") int pageSize) {
         int finalLimit = Math.max(limit, pageSize);
-        Page<PriceAdjustmentDto> paged = salesService.getPriceAdjustments(PageRequest.of(page - 1, finalLimit));
+        Page<PriceAdjustmentDto> paged = salesService.getPriceAdjustments(search, dateFrom, dateTo, PageRequest.of(page - 1, finalLimit));
         return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), PageMeta.of(page, finalLimit, paged.getTotalElements())));
     }
 

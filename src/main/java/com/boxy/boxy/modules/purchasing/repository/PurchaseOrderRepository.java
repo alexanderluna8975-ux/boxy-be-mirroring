@@ -10,11 +10,12 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, Long> {
-    Page<PurchaseOrder> findByBranchIdOrderByCreatedAtDesc(Long branchId, Pageable pageable);
     Page<PurchaseOrder> findByCompanyIdOrderByCreatedAtDesc(Long companyId, Pageable pageable);
     Optional<PurchaseOrder> findByOrderNumber(String orderNumber);
     java.util.List<PurchaseOrder> findByCompanyId(Long companyId);
@@ -29,15 +30,23 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, Lo
             "WHERE po.supplier.id = :supplierId AND UPPER(po.status) NOT IN ('DRAFT', 'REJECTED', 'CANCELLED')")
     BigDecimal sumTotalAmountBySupplierId(@Param("supplierId") Long supplierId);
 
+    /** No `warehouseId` filter — the entity only tracks a `branch`, not a specific warehouse. */
     @Query("SELECT po FROM PurchaseOrder po WHERE po.company.id = :companyId " +
             "AND (:ignoreStatus = TRUE OR UPPER(po.status) IN :statuses) " +
             "AND (:supplierId IS NULL OR po.supplier.id = :supplierId) " +
-            "AND (:search IS NULL OR LOWER(po.orderNumber) LIKE LOWER(CONCAT('%', :search, '%'))) " +
+            "AND (:branchId IS NULL OR po.branch.id = :branchId) " +
+            "AND (:search IS NULL OR LOWER(po.orderNumber) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "     OR LOWER(po.supplier.name) LIKE LOWER(CONCAT('%', :search, '%'))) " +
+            "AND (:dateFrom IS NULL OR po.issueDate >= :dateFrom) " +
+            "AND (:dateTo IS NULL OR po.issueDate <= :dateTo) " +
             "ORDER BY po.createdAt DESC")
     Page<PurchaseOrder> search(@Param("companyId") Long companyId,
                                @Param("ignoreStatus") boolean ignoreStatus,
-                               @Param("statuses") java.util.List<String> statuses,
+                               @Param("statuses") List<String> statuses,
                                @Param("supplierId") Long supplierId,
+                               @Param("branchId") Long branchId,
                                @Param("search") String search,
+                               @Param("dateFrom") LocalDate dateFrom,
+                               @Param("dateTo") LocalDate dateTo,
                                Pageable pageable);
 }

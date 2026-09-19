@@ -78,6 +78,7 @@ public class InventoryController {
     public ResponseEntity<ApiResponse<List<StockMovementDto>>> getAllMovements(
             @RequestParam(required = false) Long warehouseId,
             @RequestParam(required = false) Long productId,
+            @RequestParam(required = false) String search,
             @RequestParam(required = false, name = "filter.warehouseId") Long filterWarehouseId,
             @RequestParam(required = false, name = "filter.productId") Long filterProductId,
             @RequestParam(required = false, name = "filter.type") String type,
@@ -90,7 +91,7 @@ public class InventoryController {
         Long effectiveWarehouseId = warehouseId != null ? warehouseId : filterWarehouseId;
         Long effectiveProductId = productId != null ? productId : filterProductId;
         Page<StockMovementDto> paged = inventoryService.getAllMovements(
-                effectiveWarehouseId, effectiveProductId, type, dateFrom, dateTo, pageable);
+                effectiveWarehouseId, effectiveProductId, type, dateFrom, dateTo, search, pageable);
         PageMeta meta = PageMeta.from(paged);
         return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), meta));
     }

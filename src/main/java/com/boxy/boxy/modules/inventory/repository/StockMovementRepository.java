@@ -22,7 +22,11 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, Lo
            "AND (:productId IS NULL OR m.product.id = :productId) " +
            "AND (:movementTypes IS NULL OR m.movementType IN :movementTypes) " +
            "AND (:dateFrom IS NULL OR m.createdAt >= :dateFrom) " +
-           "AND (:dateTo IS NULL OR m.createdAt <= :dateTo)")
+           "AND (:dateTo IS NULL OR m.createdAt <= :dateTo) " +
+           "AND (:search IS NULL " +
+           "     OR LOWER(m.product.name) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "     OR LOWER(m.product.sku) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "     OR LOWER(m.referenceId) LIKE LOWER(CONCAT('%', :search, '%')))")
     Page<StockMovement> findAllFiltered(
             @Param("companyId") Long companyId,
             @Param("warehouseId") Long warehouseId,
@@ -30,5 +34,6 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, Lo
             @Param("movementTypes") Collection<String> movementTypes,
             @Param("dateFrom") Instant dateFrom,
             @Param("dateTo") Instant dateTo,
+            @Param("search") String search,
             Pageable pageable);
 }

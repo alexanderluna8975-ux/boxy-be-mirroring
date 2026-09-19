@@ -76,9 +76,13 @@ public class PurchasingService {
     }
 
     @Transactional(readOnly = true)
-    public Page<SupplierDto> getSuppliersPaged(Pageable pageable) {
+    public Page<SupplierDto> getSuppliersPaged(String search, String status, Pageable pageable) {
         Long companyId = SecurityUtils.getCurrentCompanyId();
-        return supplierRepository.findByCompanyIdAndDeletedAtIsNull(companyId, pageable)
+        Boolean isActive = "active".equalsIgnoreCase(status) ? Boolean.TRUE
+                : "inactive".equalsIgnoreCase(status) ? Boolean.FALSE
+                : null;
+        String term = (search != null && !search.isBlank()) ? search.trim() : null;
+        return supplierRepository.findAllFiltered(companyId, term, isActive, pageable)
                 .map(this::toSupplierDto);
     }
 
@@ -165,17 +169,29 @@ public class PurchasingService {
     }
 
     @Transactional(readOnly = true)
-    public Page<PurchaseOrderDto> getPurchaseOrders(Long branchId, String status, Long supplierId, String search, Pageable pageable) {
-        if (branchId != null) {
-            return purchaseOrderRepository.findByBranchIdOrderByCreatedAtDesc(branchId, pageable).map(this::toPoDto);
-        }
+    public Page<PurchaseOrderDto> getPurchaseOrders(Long branchId, String status, Long supplierId, String search,
+                                                     String dateFrom, String dateTo, Pageable pageable) {
         Long companyId = SecurityUtils.getCurrentCompanyId();
         List<String> statuses = mapFrontendStatus(status);
         boolean ignoreStatus = statuses == null;
         String searchTerm = (search == null || search.isBlank()) ? null : search.trim();
+        java.time.LocalDate from = parseLocalDate(dateFrom);
+        java.time.LocalDate to = parseLocalDate(dateTo);
         return purchaseOrderRepository
-                .search(companyId, ignoreStatus, ignoreStatus ? List.of("_") : statuses, supplierId, searchTerm, pageable)
+                .search(companyId, ignoreStatus, ignoreStatus ? List.of("_") : statuses, supplierId, branchId, searchTerm, from, to, pageable)
                 .map(this::toPoDto);
+    }
+
+    /** FE sends a bare `yyyy-MM-dd` for `dateFrom` and a full ISO instant (`...T23:59:59.999Z`) for `dateTo` — both parse to the LocalDate `issueDate` compares against. */
+    private static java.time.LocalDate parseLocalDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return java.time.LocalDate.parse(value.length() >= 10 ? value.substring(0, 10) : value);
+        } catch (Exception ignoredUnparsable) {
+            return null;
+        }
     }
 
     @Transactional(readOnly = true)
