@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS document_sequences (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     company_id BIGINT UNSIGNED NOT NULL,
     document_type VARCHAR(30) NOT NULL,
-    last_value BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `last_value` BIGINT UNSIGNED NOT NULL DEFAULT 0,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     CONSTRAINT fk_document_sequences_company FOREIGN KEY (company_id) REFERENCES companies(id),
@@ -21,37 +21,37 @@ CREATE TABLE IF NOT EXISTS document_sequences (
 -- adjustment/transfer/sale/quotation/purchase-order/goods-receipt created after this migration
 -- legitimately starts the real correlative sequence at 1.
 
-INSERT INTO document_sequences (company_id, document_type, last_value)
+INSERT INTO document_sequences (company_id, document_type, `last_value`)
 SELECT company_id, 'ADJUSTMENT', COALESCE(MAX(CAST(SUBSTRING(adjustment_number, 5) AS UNSIGNED)), 0)
 FROM stock_adjustments
 WHERE adjustment_number REGEXP '^ADJ-[0-9]+$'
 GROUP BY company_id;
 
-INSERT INTO document_sequences (company_id, document_type, last_value)
+INSERT INTO document_sequences (company_id, document_type, `last_value`)
 SELECT company_id, 'TRANSFER', COALESCE(MAX(CAST(SUBSTRING(transfer_number, 5) AS UNSIGNED)), 0)
 FROM stock_transfers
 WHERE transfer_number REGEXP '^TRF-[0-9]+$'
 GROUP BY company_id;
 
-INSERT INTO document_sequences (company_id, document_type, last_value)
+INSERT INTO document_sequences (company_id, document_type, `last_value`)
 SELECT company_id, 'QUOTATION', COALESCE(MAX(CAST(SUBSTRING(order_number, 5) AS UNSIGNED)), 0)
 FROM sales_orders
 WHERE order_type = 'QUOTATION' AND order_number REGEXP '^COT-[0-9]+$'
 GROUP BY company_id;
 
-INSERT INTO document_sequences (company_id, document_type, last_value)
+INSERT INTO document_sequences (company_id, document_type, `last_value`)
 SELECT company_id, 'PRICE_ADJUSTMENT', COALESCE(MAX(CAST(SUBSTRING(folio, 4) AS UNSIGNED)), 0)
 FROM price_adjustments
 WHERE folio REGEXP '^PR-[0-9]+$'
 GROUP BY company_id;
 
-INSERT INTO document_sequences (company_id, document_type, last_value)
+INSERT INTO document_sequences (company_id, document_type, `last_value`)
 SELECT company_id, 'PURCHASE_ORDER', COALESCE(MAX(CAST(SUBSTRING(order_number, 4) AS UNSIGNED)), 0)
 FROM purchase_orders
 WHERE order_number REGEXP '^PO-[0-9]+$'
 GROUP BY company_id;
 
-INSERT INTO document_sequences (company_id, document_type, last_value)
+INSERT INTO document_sequences (company_id, document_type, `last_value`)
 SELECT po.company_id, 'GOODS_RECEIPT', COALESCE(MAX(CAST(SUBSTRING(gr.receipt_number, 5) AS UNSIGNED)), 0)
 FROM goods_receipts gr
 JOIN purchase_orders po ON po.id = gr.purchase_order_id

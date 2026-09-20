@@ -50,7 +50,7 @@ public class DocumentSequence {
     @Column(name = "document_type", nullable = false, length = 30)
     private DocumentType documentType;
 
-    @Column(name = "last_value", nullable = false)
+    @Column(name = "`last_value`", nullable = false)
     @Builder.Default
     private long lastValue = 0L;
 
