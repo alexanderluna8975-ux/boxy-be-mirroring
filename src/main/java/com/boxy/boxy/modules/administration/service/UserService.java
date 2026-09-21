@@ -17,6 +17,10 @@ import com.boxy.boxy.modules.administration.repository.BranchRepository;
 import com.boxy.boxy.modules.administration.repository.CompanyRepository;
 import com.boxy.boxy.modules.administration.repository.RoleRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
+import com.boxy.boxy.modules.administration.dto.UpdateUserPermissionsRequest;
+import com.boxy.boxy.modules.administration.dto.UserPermissionOverridesDto;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,8 +28,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +44,7 @@ public class UserService {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
+    private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public List<UserDto> getAllUsers() {
@@ -169,6 +177,56 @@ public class UserService {
         return toDto(saved);
     }
 
+    @Transactional
+    public UserDto updateUserPermissions(Long id, UpdateUserPermissionsRequest request) {
+        User user = findOwnedUser(id);
+
+        boolean isSuperAdmin = user.getBranchRoles().stream()
+                .anyMatch(ubr -> ubr.getRole() != null && "ROLE_SUPER_ADMIN".equalsIgnoreCase(ubr.getRole().getCode()));
+        if (isSuperAdmin) {
+            throw new BusinessException("IMMUTABLE_USER",
+                    "Super Administrator users have unrestricted access and cannot have permissions overridden.");
+        }
+
+        UserPermissionOverridesDto resolved = request != null ? request.resolveOverrides() : new UserPermissionOverridesDto();
+        String previous = user.getPermissionOverrides();
+        String json = null;
+        try {
+            boolean hasGranted = resolved.getGranted() != null && !resolved.getGranted().isEmpty();
+            boolean hasRevoked = resolved.getRevoked() != null && !resolved.getRevoked().isEmpty();
+            if (hasGranted || hasRevoked) {
+                json = objectMapper.writeValueAsString(resolved);
+            }
+        } catch (JsonProcessingException e) {
+            throw new BusinessException("INVALID_PERMISSIONS_PAYLOAD", "Failed to serialize permission overrides.");
+        }
+
+        user.setPermissionOverrides(json);
+        User saved = userRepository.save(user);
+
+        auditLogService.record("Permisos de usuario personalizados", "Usuario", String.valueOf(saved.getId()),
+                saved.getFullName() != null ? saved.getFullName() : saved.getUsername(),
+                previous != null ? previous : "Valores de rol",
+                json != null ? json : "Valores de rol por defecto");
+
+        return toDto(saved);
+    }
+
+    @Transactional
+    public UserDto resetUserPermissions(Long id) {
+        User user = findOwnedUser(id);
+        String previous = user.getPermissionOverrides();
+        user.setPermissionOverrides(null);
+        User saved = userRepository.save(user);
+
+        auditLogService.record("Permisos de usuario restablecidos", "Usuario", String.valueOf(saved.getId()),
+                saved.getFullName() != null ? saved.getFullName() : saved.getUsername(),
+                previous != null ? previous : "Valores de rol",
+                "Valores de rol por defecto");
+
+        return toDto(saved);
+    }
+
     @Transactional(readOnly = true)
     public boolean checkUserUnique(String field, String value, Long excludeId) {
         Optional<User> existing = "email".equalsIgnoreCase(field)
@@ -216,6 +274,43 @@ public class UserService {
         return "usuario: " + user.getUsername() + "\ncorreo: " + user.getEmail();
     }
 
+    private UserPermissionOverridesDto parseOverrides(String rawJson) {
+        if (rawJson == null || rawJson.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(rawJson, UserPermissionOverridesDto.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private List<String> calculateEffectivePermissions(User user, UserPermissionOverridesDto overrides) {
+        Set<String> perms = new LinkedHashSet<>();
+        boolean isSuperAdmin = false;
+        for (UserBranchRole ubr : user.getBranchRoles()) {
+            if (ubr.getRole() != null) {
+                if ("ROLE_SUPER_ADMIN".equalsIgnoreCase(ubr.getRole().getCode())) {
+                    isSuperAdmin = true;
+                }
+                if (ubr.getRole().getPermissions() != null) {
+                    ubr.getRole().getPermissions().forEach(p -> perms.add(p.getCode()));
+                }
+            }
+        }
+
+        if (!isSuperAdmin && overrides != null) {
+            if (overrides.getGranted() != null) {
+                perms.addAll(overrides.getGranted());
+            }
+            if (overrides.getRevoked() != null) {
+                overrides.getRevoked().forEach(perms::remove);
+            }
+        }
+
+        return new ArrayList<>(perms);
+    }
+
     private UserDto toDto(User user) {
         List<UserBranchAssignmentDto> assignments = user.getBranchRoles().stream()
                 .map(ubr -> UserBranchAssignmentDto.builder()
@@ -227,6 +322,9 @@ public class UserService {
                         .build())
                 .toList();
 
+        UserPermissionOverridesDto overrides = parseOverrides(user.getPermissionOverrides());
+        List<String> effectivePermissions = calculateEffectivePermissions(user, overrides);
+
         return UserDto.builder()
                 .id(user.getId())
                 .username(user.getUsername())
@@ -236,6 +334,8 @@ public class UserService {
                 .avatarUrl(user.getAvatarUrl())
                 .status(user.getStatus())
                 .branchAssignments(assignments)
+                .permissionOverrides(overrides)
+                .permissions(effectivePermissions)
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .build();
