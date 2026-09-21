@@ -141,8 +141,15 @@ public class PurchasingController {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.submitPurchaseOrder(id)));
     }
 
+    @PatchMapping("/orders/{id}/lines/{productId}")
+    @Operation(summary = "Correct a line's quantity/cost/sale price, inline, while pending approval")
+    public ResponseEntity<ApiResponse<PurchaseOrderDto>> updatePurchaseOrderLine(
+            @PathVariable Long id, @PathVariable Long productId, @RequestBody UpdatePurchaseOrderLineRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(purchasingService.updatePurchaseOrderLine(id, productId, request)));
+    }
+
     @PatchMapping("/orders/{id}/approve")
-    @Operation(summary = "Approve purchase order")
+    @Operation(summary = "Approve a purchase order — immediately marks it as ordered/sent, no separate step")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> approvePurchaseOrder(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.approvePurchaseOrder(id)));
     }

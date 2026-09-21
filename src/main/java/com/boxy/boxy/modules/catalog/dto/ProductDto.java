@@ -31,6 +31,10 @@ public class ProductDto {
     private String description;
     private BigDecimal costPrice;
     private BigDecimal purchasePrice;
+    /** What was actually paid per unit on the most recent goods receipt — see
+     *  {@code Product#lastPurchaseCost}. Falls back to {@code costPrice} until the product has ever
+     *  been received. */
+    private BigDecimal lastPurchaseCost;
     private BigDecimal sellingPrice;
     private BigDecimal salePrice;
     private BigDecimal minStockAlert;
