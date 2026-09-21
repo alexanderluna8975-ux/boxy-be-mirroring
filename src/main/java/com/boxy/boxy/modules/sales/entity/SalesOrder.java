@@ -69,6 +69,11 @@ public class SalesOrder {
     @Column(length = 500)
     private String notes;
 
+    /** Quotation-only — expiry date the customer was quoted (`CreateQuotationRequest.validUntil`).
+     *  Unused for `orderType = "SALE"`. */
+    @Column(name = "valid_until")
+    private Instant validUntil;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false)
     private User createdBy;

@@ -161,7 +161,11 @@ public class SalesService {
     @Transactional(readOnly = true)
     public List<CatalogItemDto> searchCatalog(String term) {
         Long companyId = SecurityUtils.getCurrentCompanyId();
-        List<Product> products = productRepository.findAllFiltered(companyId, term, null, null, true, PageRequest.of(0, 50)).getContent();
+        // Was capped at 50 — POS loads this once and filters client-side as the cashier types, so
+        // any catalog bigger than the page size silently lost products past it (findable only by
+        // an exact barcode scan, a separate query). 500 matches the "fetch the whole active set
+        // once" precedent used elsewhere (Purchasing, Price Adjustments).
+        List<Product> products = productRepository.findAllFiltered(companyId, term, null, null, true, PageRequest.of(0, 500)).getContent();
         return products.stream().map(this::toCatalogItemDto).toList();
     }
 
@@ -174,12 +178,21 @@ public class SalesService {
 
     private CatalogItemDto toCatalogItemDto(Product p) {
         List<StockLevel> levels = stockLevelRepository.findByProductId(p.getId());
+        // Real computed value, including a genuine zero — a product truly out of stock must be
+        // reportable as such (the old 50.0 fallback here made "Existencia: Inexistentes" filters
+        // impossible to ever match anything).
         BigDecimal available = levels.stream()
                 .map(s -> s.getQuantityAvailable() != null ? s.getQuantityAvailable() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (available.compareTo(BigDecimal.ZERO) <= 0) {
-            available = BigDecimal.valueOf(50.0);
-        }
+        List<com.boxy.boxy.modules.catalog.dto.ProductDto.BranchStockDto> stockByBranch =
+                stockLevelRepository.getBranchStockByProductId(p.getId()).stream()
+                        .map(row -> com.boxy.boxy.modules.catalog.dto.ProductDto.BranchStockDto.builder()
+                                .branchId(row[0] != null ? ((Number) row[0]).longValue() : null)
+                                .branchCode((String) row[1])
+                                .branchName((String) row[2])
+                                .quantity(row[3] != null ? new BigDecimal(row[3].toString()) : BigDecimal.ZERO)
+                                .build())
+                        .toList();
         return CatalogItemDto.builder()
                 .productId(p.getId())
                 .sku(p.getSku())
@@ -187,8 +200,13 @@ public class SalesService {
                 .name(p.getName())
                 .salePrice(p.getSalePrice() != null ? p.getSalePrice() : (p.getSellingPrice() != null ? p.getSellingPrice() : BigDecimal.ZERO))
                 .availableStock(available)
+                .categoryId(p.getCategory() != null ? p.getCategory().getId() : null)
+                .categoryName(p.getCategory() != null ? p.getCategory().getName() : null)
+                .brandId(p.getBrand() != null ? p.getBrand().getId() : null)
                 .brandName(p.getBrand() != null ? p.getBrand().getName() : "—")
                 .unitName(p.getUnitOfMeasure() != null ? p.getUnitOfMeasure().getName() : "—")
+                .imageUrl(p.getImageUrl())
+                .stockByBranch(stockByBranch)
                 .build();
     }
 
@@ -238,6 +256,7 @@ public class SalesService {
                 .status("draft")
                 .notes(request.getNotes())
                 .createdBy(user)
+                .validUntil(parseValidUntil(request.getValidUntil()))
                 .build();
 
         if (request.getLines() != null) {
@@ -247,9 +266,16 @@ public class SalesService {
                 BigDecimal unitPrice = line.getUnitPrice() != null ? line.getUnitPrice() : (product.getSalePrice() != null ? product.getSalePrice() : BigDecimal.ZERO);
                 BigDecimal qty = line.getQuantity() != null ? line.getQuantity() : BigDecimal.ONE;
                 BigDecimal lineDisc = line.getLineDiscount() != null ? line.getLineDiscount() : BigDecimal.ZERO;
+                // Tax-inclusive (business-patterns.md §6: "Prices are tax-inclusive... tax is
+                // extracted from that total for reporting, never added on top" — Sales-only,
+                // Quotations included). The sale price already has tax baked in, so the line
+                // total IS quantity × unitPrice − lineDiscount; `lineTax` is only extracted from
+                // it afterward for the `taxAmount` reporting figure, mirroring the frontend's own
+                // `computeTotals` (`taxMode: 'inclusive'`): `taxAmount = total − total / (1 + taxRate)`.
                 BigDecimal lineGross = qty.multiply(unitPrice).subtract(lineDisc);
-                BigDecimal lineTax = lineGross.multiply(BigDecimal.valueOf(0.16));
-                BigDecimal lineTot = lineGross.add(lineTax);
+                BigDecimal taxRate = BigDecimal.valueOf(0.16);
+                BigDecimal lineTax = lineGross.subtract(
+                        lineGross.divide(BigDecimal.ONE.add(taxRate), 6, java.math.RoundingMode.HALF_UP));
 
                 subtotal = subtotal.add(lineGross);
                 taxTotal = taxTotal.add(lineTax);
@@ -261,17 +287,27 @@ public class SalesService {
                         .quantity(qty)
                         .unitPrice(unitPrice)
                         .discountRate(BigDecimal.ZERO)
-                        .taxRate(BigDecimal.valueOf(0.16))
-                        .totalAmount(lineTot)
+                        .discountAmount(lineDisc)
+                        .taxRate(taxRate)
+                        .totalAmount(lineGross)
                         .build();
                 so.getItems().add(item);
             }
         }
 
+        // Ticket-level discount, on top of the per-line discounts already netted into
+        // `subtotal` above via `lineGross`. Kept separate from `subtotal`'s existing
+        // net-of-line-discounts meaning — only `discountAmount`/`totalAmount` absorb it,
+        // mirroring how `processCheckout` applies its own ticket-level discount.
+        BigDecimal ticketDiscount = request.getDiscountAmount() != null ? request.getDiscountAmount() : BigDecimal.ZERO;
+        discountTotal = discountTotal.add(ticketDiscount);
+
         so.setSubtotal(subtotal);
         so.setDiscountAmount(discountTotal);
         so.setTaxAmount(taxTotal);
-        so.setTotalAmount(subtotal.add(taxTotal));
+        // `subtotal` (the sum of `lineGross`) already has tax baked in — tax-inclusive, not added
+        // again here. Only the ticket-level discount reduces it further.
+        so.setTotalAmount(subtotal.subtract(ticketDiscount).max(BigDecimal.ZERO));
 
         return toQuotationDto(salesOrderRepository.save(so));
     }
@@ -281,6 +317,7 @@ public class SalesService {
         SalesOrder so = salesOrderRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Quotation", id));
         if (request.getNotes() != null) so.setNotes(request.getNotes());
+        if (request.getValidUntil() != null) so.setValidUntil(parseValidUntil(request.getValidUntil()));
         return toQuotationDto(salesOrderRepository.save(so));
     }
 
@@ -316,7 +353,7 @@ public class SalesService {
                         .productName(i.getProduct().getName())
                         .unitPrice(i.getUnitPrice())
                         .quantity(i.getQuantity())
-                        .lineDiscount(BigDecimal.ZERO)
+                        .lineDiscount(i.getDiscountAmount())
                         .lineTotal(i.getTotalAmount())
                         .build())
                 .toList();
@@ -335,9 +372,24 @@ public class SalesService {
                 .total(so.getTotalAmount())
                 .lineCount(so.getItems().size())
                 .notes(so.getNotes())
+                .validUntil(so.getValidUntil())
                 .lines(lines)
                 .createdAt(so.getCreatedAt())
                 .build();
+    }
+
+    /** `CreateQuotationRequest.validUntil` arrives as an ISO-8601 instant string (the frontend
+     *  always sends one, e.g. `"2026-07-25T23:59:59.999Z"`) — tolerant of null/blank/malformed
+     *  input rather than failing the whole create/update, since it's a display-only field. */
+    private static Instant parseValidUntil(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(raw);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -634,16 +686,17 @@ public class SalesService {
             }
         }
 
-        // No validity-date field exists on SalesOrder yet (QuotationDto.validUntil is never set by
-        // toQuotationDto() either) — omitted here rather than inventing a value. Flagged as a
-        // pre-existing gap, out of scope for this change.
         Map<String, Object> metaFields = new LinkedHashMap<>();
         metaFields.put("Fecha Cotizada", PDF_DATE.format(so.getCreatedAt()));
-        metaFields.put("Número cotización", so.getOrderNumber());
+        if (so.getValidUntil() != null) {
+            long days = java.time.temporal.ChronoUnit.DAYS.between(so.getCreatedAt(), so.getValidUntil());
+            metaFields.put("Validez", "Hasta " + PDF_DATE.format(so.getValidUntil()) + " (" + days + " días)");
+        }
 
         Map<String, Object> model = new HashMap<>();
         model.put("company", company);
         model.put("docTitle", "COTIZACIÓN");
+        model.put("folio", so.getOrderNumber());
         model.put("priceColumnLabel", "Precio");
         model.put("total", so.getTotalAmount());
         model.put("notes", so.getNotes() != null ? so.getNotes() : "");
@@ -651,7 +704,9 @@ public class SalesService {
         model.put("partyFields", partyFields);
         model.put("metaFields", metaFields);
         model.put("amountInWords", AmountInWordsEs.format(so.getTotalAmount(), company.getCurrencySymbol()));
-        model.put("sellerName", so.getCreatedBy() != null ? so.getCreatedBy().getFullName() : "");
+        // Falls back to the company name (not blank) when no specific seller is attached — matches
+        // the reference layout's "Cotizador — LatinaTools" signature line for that case.
+        model.put("sellerName", so.getCreatedBy() != null ? so.getCreatedBy().getFullName() : company.getTradeName());
         model.put("leftRoleLabel", "Cotizador");
         model.put("rightRoleLabel", "Vendedor");
 
@@ -696,11 +751,11 @@ public class SalesService {
         if (invoice.getDueDate() != null) {
             metaFields.put("Vence", PDF_DATE.format(invoice.getDueDate()));
         }
-        metaFields.put("Documento", invoice.getSeries() + "-" + invoice.getNumber());
 
         Map<String, Object> model = new HashMap<>();
         model.put("company", company);
         model.put("docTitle", "NOTA DE VENTA");
+        model.put("folio", invoice.getSeries() + "-" + invoice.getNumber());
         model.put("priceColumnLabel", "Precio");
         model.put("total", invoice.getTotalAmount());
         model.put("notes", "");
@@ -708,7 +763,7 @@ public class SalesService {
         model.put("partyFields", partyFields);
         model.put("metaFields", metaFields);
         model.put("amountInWords", AmountInWordsEs.format(invoice.getTotalAmount(), company.getCurrencySymbol()));
-        model.put("sellerName", invoice.getCreatedBy() != null ? invoice.getCreatedBy().getFullName() : "");
+        model.put("sellerName", invoice.getCreatedBy() != null ? invoice.getCreatedBy().getFullName() : company.getTradeName());
         model.put("leftRoleLabel", "Cajero");
         model.put("rightRoleLabel", "Vendedor");
 
