@@ -47,6 +47,9 @@ public class User {
     @Builder.Default
     private String status = "ACTIVE"; // ACTIVE, INACTIVE, SUSPENDED
 
+    @Column(name = "permission_overrides", columnDefinition = "TEXT")
+    private String permissionOverrides;
+
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<UserBranchRole> branchRoles = new ArrayList<>();

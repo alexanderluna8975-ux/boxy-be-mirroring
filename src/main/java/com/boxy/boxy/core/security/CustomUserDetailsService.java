@@ -1,8 +1,10 @@
 package com.boxy.boxy.core.security;
 
+import com.boxy.boxy.modules.administration.dto.UserPermissionOverridesDto;
 import com.boxy.boxy.modules.administration.entity.User;
 import com.boxy.boxy.modules.administration.entity.UserBranchRole;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -18,6 +20,7 @@ import java.util.List;
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(readOnly = true)
@@ -27,14 +30,37 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         List<String> rolesAndPermissions = new ArrayList<>();
         Long defaultBranchId = null;
+        boolean isSuperAdmin = false;
 
         for (UserBranchRole ubr : user.getBranchRoles()) {
             if (ubr.getRole() != null) {
                 rolesAndPermissions.add(ubr.getRole().getCode());
+                if ("ROLE_SUPER_ADMIN".equalsIgnoreCase(ubr.getRole().getCode())) {
+                    isSuperAdmin = true;
+                }
                 ubr.getRole().getPermissions().forEach(p -> rolesAndPermissions.add(p.getCode()));
             }
             if (Boolean.TRUE.equals(ubr.getIsDefault()) && ubr.getBranch() != null) {
                 defaultBranchId = ubr.getBranch().getId();
+            }
+        }
+
+        if (!isSuperAdmin && user.getPermissionOverrides() != null && !user.getPermissionOverrides().isBlank()) {
+            try {
+                UserPermissionOverridesDto overrides = objectMapper.readValue(user.getPermissionOverrides(), UserPermissionOverridesDto.class);
+                if (overrides != null) {
+                    if (overrides.getGranted() != null) {
+                        for (String g : overrides.getGranted()) {
+                            if (!rolesAndPermissions.contains(g)) {
+                                rolesAndPermissions.add(g);
+                            }
+                        }
+                    }
+                    if (overrides.getRevoked() != null) {
+                        rolesAndPermissions.removeAll(overrides.getRevoked());
+                    }
+                }
+            } catch (Exception ignored) {
             }
         }
 

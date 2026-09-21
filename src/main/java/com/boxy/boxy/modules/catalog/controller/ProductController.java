@@ -104,6 +104,18 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.ok(inventoryService.getStockLevelsByProduct(id)));
     }
 
+    @GetMapping("/products/{id}/cost-history")
+    @Operation(summary = "Get the cost history for a product — one entry per goods receipt that recalculated its cost")
+    public ResponseEntity<ApiResponse<List<ProductCostHistoryDto>>> getProductCostHistory(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(required = false) Integer pageSize) {
+        Page<ProductCostHistoryDto> paged = productService.getCostHistory(
+                id, PageRequest.of(page - 1, pageSize != null ? pageSize : 20));
+        PageMeta meta = PageMeta.of(page, pageSize != null ? pageSize : 20, paged.getTotalElements());
+        return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), meta));
+    }
+
     @PostMapping("/products")
     @Operation(summary = "Create a new product")
     public ResponseEntity<ApiResponse<ProductDto>> createProduct(@Valid @RequestBody CreateProductRequest request) {

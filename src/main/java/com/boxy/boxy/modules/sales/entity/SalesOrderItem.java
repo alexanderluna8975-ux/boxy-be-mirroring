@@ -41,6 +41,10 @@ public class SalesOrderItem {
     @Builder.Default
     private BigDecimal discountRate = BigDecimal.ZERO;
 
+    @Column(name = "discount_amount", nullable = false, precision = 14, scale = 4)
+    @Builder.Default
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
     @Column(name = "tax_rate", nullable = false, precision = 6, scale = 4)
     @Builder.Default
     private BigDecimal taxRate = BigDecimal.ZERO;

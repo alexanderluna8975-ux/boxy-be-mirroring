@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <title th:text="${folio}">Nota de Transferencia</title>
+  <div th:replace="~{pdf/fragments/document :: styles}"></div>
+</head>
+<body>
+
+<div th:replace="~{pdf/fragments/document :: header(${company}, 'NOTA DE TRANSFERENCIA', ${folio}, ${partyFields}, ${metaFields})}"></div>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th>Código</th>
+      <th>Descripción</th>
+      <th class="numeric">Enviado</th>
+      <th class="numeric">Recibido</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr th:each="line : ${lines}">
+      <td th:text="${line.sku}"></td>
+      <td class="description" th:text="${line.productName}"></td>
+      <td class="numeric" th:text="${#numbers.formatDecimal(line.quantitySent, 1, 2)}"></td>
+      <td class="numeric" th:text="${line.quantityReceived != null ? #numbers.formatDecimal(line.quantityReceived, 1, 2) : '—'}"></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="notes" th:if="${notes != null and !notes.isEmpty()}">
+  <span th:text="${notes}"></span>
+</div>
+
+<div th:replace="~{pdf/fragments/document :: signatures('Despachado por', ${requestedByName}, 'Recibido por', ${receivedByName})}"></div>
+
+<div th:replace="~{pdf/fragments/document :: thanks}"></div>
+
+</body>
+</html>

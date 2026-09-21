@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <title th:text="${docTitle}">Documento</title>
+  <div th:replace="~{pdf/fragments/document :: styles}"></div>
+</head>
+<body>
+
+<div th:replace="~{pdf/fragments/document :: header(${company}, ${docTitle}, ${folio}, ${partyFields}, ${metaFields})}"></div>
+
+<table class="items">
+  <thead>
+    <tr>
+      <th>Cant.</th>
+      <th>Unidad</th>
+      <th>Código</th>
+      <th>Descripción</th>
+      <th class="numeric" th:text="${priceColumnLabel}">Precio</th>
+      <th class="numeric">Desc.</th>
+      <th class="numeric">Subtotal</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr th:each="line : ${lines}">
+      <td class="numeric" th:text="${#numbers.formatDecimal(line.quantity, 1, 2)}"></td>
+      <td th:text="${line.unitName}"></td>
+      <td th:text="${line.sku}"></td>
+      <td class="description" th:text="${line.description}"></td>
+      <td class="numeric" th:text="${#numbers.formatDecimal(line.unitPrice, 1, 'COMMA', 2, 'POINT')}"></td>
+      <td class="numeric" th:text="${#numbers.formatDecimal(line.discount, 1, 'COMMA', 2, 'POINT')}"></td>
+      <td class="numeric" th:text="${#numbers.formatDecimal(line.subtotal, 1, 'COMMA', 2, 'POINT')}"></td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr>
+      <td colspan="6" class="total-label">Total</td>
+      <td class="numeric total-value" th:style="'color:' + ${company.primaryColor}" th:text="${company.currencySymbol} + ' ' + ${#numbers.formatDecimal(total, 1, 'COMMA', 2, 'POINT')}"></td>
+    </tr>
+  </tfoot>
+</table>
+
+<p class="amount-words"><span class="label">Son:</span> <span th:text="${amountInWords}"></span></p>
+
+<div class="notes" th:if="${notes != null and !notes.isEmpty()}">
+  <span th:text="${notes}"></span>
+</div>
+
+<div th:replace="~{pdf/fragments/document :: signatures(${leftRoleLabel}, ${sellerName}, ${rightRoleLabel}, ${sellerName})}"></div>
+
+<div th:replace="~{pdf/fragments/document :: thanks}"></div>
+
+</body>
+</html>

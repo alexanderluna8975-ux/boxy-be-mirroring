@@ -118,6 +118,16 @@ public class SalesController {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getQuotationById(id)));
     }
 
+    @GetMapping("/quotations/{id}/pdf")
+    @Operation(summary = "Download the quotation as a printable PDF")
+    public ResponseEntity<byte[]> getQuotationPdf(@PathVariable Long id) {
+        byte[] pdf = salesService.generateQuotationPdf(id);
+        return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"cotizacion-" + id + ".pdf\"")
+                .body(pdf);
+    }
+
     @PostMapping("/quotations")
     @Operation(summary = "Create a new quotation")
     public ResponseEntity<ApiResponse<QuotationDto>> createQuotation(@Valid @RequestBody CreateQuotationRequest request) {
@@ -197,6 +207,17 @@ public class SalesController {
     public ResponseEntity<ApiResponse<InvoiceDto>> getSaleById(@PathVariable String id) {
         Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
         return ResponseEntity.ok(ApiResponse.ok(salesService.getSaleById(cleanId)));
+    }
+
+    @GetMapping({"/sales/{id}/pdf"})
+    @Operation(summary = "Download the sale's Nota de Venta as a printable PDF")
+    public ResponseEntity<byte[]> getSalePdf(@PathVariable String id) {
+        Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
+        byte[] pdf = salesService.generateSalePdf(cleanId);
+        return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"nota-venta-" + cleanId + ".pdf\"")
+                .body(pdf);
     }
 
     @PostMapping({"/sales/{id}/payments", "/sales/{id:\\d+}/payments"})

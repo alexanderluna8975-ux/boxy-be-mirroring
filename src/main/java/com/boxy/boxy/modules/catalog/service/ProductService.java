@@ -16,9 +16,11 @@ import com.boxy.boxy.modules.catalog.dto.*;
 import com.boxy.boxy.modules.catalog.entity.Brand;
 import com.boxy.boxy.modules.catalog.entity.Category;
 import com.boxy.boxy.modules.catalog.entity.Product;
+import com.boxy.boxy.modules.catalog.entity.ProductCostHistory;
 import com.boxy.boxy.modules.catalog.entity.UnitOfMeasure;
 import com.boxy.boxy.modules.catalog.repository.BrandRepository;
 import com.boxy.boxy.modules.catalog.repository.CategoryRepository;
+import com.boxy.boxy.modules.catalog.repository.ProductCostHistoryRepository;
 import com.boxy.boxy.modules.catalog.repository.ProductRepository;
 import com.boxy.boxy.modules.catalog.repository.UnitOfMeasureRepository;
 import com.boxy.boxy.modules.inventory.entity.StockLevel;
@@ -48,6 +50,7 @@ public class ProductService {
     private final WarehouseRepository warehouseRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final ProductCostHistoryRepository productCostHistoryRepository;
 
     @Transactional(readOnly = true)
     public Page<ProductDto> getProducts(String search, Long categoryId, Long brandId, Boolean isActive, Pageable pageable) {
@@ -87,6 +90,27 @@ public class ProductService {
                 .minStock(product.getMinStockAlert() != null ? product.getMinStockAlert() : BigDecimal.ZERO)
                 .averageCost(averageCost)
                 .marginPercent(marginPercent)
+                .build();
+    }
+
+    /** One row per goods receipt that recalculated this product's cost — see
+     *  {@code PurchasingService#receiveGoods}, which is what writes these. */
+    @Transactional(readOnly = true)
+    public Page<ProductCostHistoryDto> getCostHistory(Long id, Pageable pageable) {
+        return productCostHistoryRepository.findByProductIdOrderByCreatedAtDesc(id, pageable)
+                .map(this::toCostHistoryDto);
+    }
+
+    private ProductCostHistoryDto toCostHistoryDto(ProductCostHistory h) {
+        return ProductCostHistoryDto.builder()
+                .id(h.getId())
+                .previousCost(h.getPreviousCost())
+                .newCost(h.getNewCost())
+                .unitCost(h.getUnitCost())
+                .quantityReceived(h.getQuantityReceived())
+                .goodsReceiptNumber(h.getGoodsReceiptNumber())
+                .createdByName(h.getCreatedBy() != null ? h.getCreatedBy().getFullName() : "SYSTEM")
+                .createdAt(h.getCreatedAt())
                 .build();
     }
 
@@ -569,6 +593,7 @@ public class ProductService {
                 .description(p.getDescription())
                 .costPrice(p.getCostPrice())
                 .purchasePrice(p.getCostPrice())
+                .lastPurchaseCost(p.getLastPurchaseCost() != null ? p.getLastPurchaseCost() : p.getCostPrice())
                 .sellingPrice(p.getSellingPrice())
                 .salePrice(p.getSellingPrice())
                 .minStockAlert(p.getMinStockAlert())

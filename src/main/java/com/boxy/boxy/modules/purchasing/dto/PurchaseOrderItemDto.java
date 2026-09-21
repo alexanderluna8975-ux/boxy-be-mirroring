@@ -23,6 +23,9 @@ public class PurchaseOrderItemDto {
     private BigDecimal quantity;
     private BigDecimal unitCost;
     private BigDecimal unitPrice;
+    /** The product's current sale price (`Product.sellingPrice`), live — not a PO-owned field.
+     *  Editable inline while the order is pending approval; see `PurchasingService#updatePurchaseOrderLine`. */
+    private BigDecimal salePrice;
     private BigDecimal taxRate;
     private BigDecimal totalCost;
     private BigDecimal lineTotal;

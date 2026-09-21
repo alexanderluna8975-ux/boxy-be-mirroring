@@ -1,6 +1,8 @@
 package com.boxy.boxy.modules.inventory.service;
 
 import com.boxy.boxy.core.exception.BusinessException;
+import com.boxy.boxy.core.sequence.DocumentSequenceService;
+import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.modules.administration.entity.Branch;
 import com.boxy.boxy.modules.administration.entity.Company;
 import com.boxy.boxy.modules.administration.entity.User;
@@ -63,6 +65,8 @@ class StockAdjustmentServiceTest {
     private UserRepository userRepository;
     @Mock
     private AuditLogService auditLogService;
+    @Mock
+    private DocumentSequenceService documentSequenceService;
 
     @InjectMocks
     private StockAdjustmentService service;
@@ -140,6 +144,7 @@ class StockAdjustmentServiceTest {
         when(warehouseRepository.findByIdAndBranchCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(warehouse));
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
         when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(product));
+        when(documentSequenceService.nextFolio(COMPANY_ID, DocumentType.ADJUSTMENT)).thenReturn("ADJ-00001");
 
         assertThatThrownBy(() -> service.createAdjustment(request))
                 .isInstanceOf(BusinessException.class)
@@ -156,6 +161,7 @@ class StockAdjustmentServiceTest {
         when(warehouseRepository.findByIdAndBranchCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(warehouse));
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
         when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(product));
+        when(documentSequenceService.nextFolio(COMPANY_ID, DocumentType.ADJUSTMENT)).thenReturn("ADJ-00003");
         when(stockAdjustmentRepository.save(any(StockAdjustment.class))).thenAnswer(inv -> inv.getArgument(0));
         // Live stock has since drifted to 100 — the stored snapshot must still reflect what was
         // actually counted (30 → 25), not this live value.
@@ -165,8 +171,12 @@ class StockAdjustmentServiceTest {
         StockAdjustmentDto dto = service.createAdjustment(request);
 
         assertThat(dto.getLines().get(0).getPreviousQuantity()).isEqualByComparingTo("30");
-        assertThat(dto.getLines().get(0).getNewQuantity()).isEqualByComparingTo("25");
+        // DTO field is `countedQuantity` (JSON key the FE's detail page actually reads) — it used
+        // to serialize as `newQuantity`, which rendered "undefined" in the Stock Contado column.
+        assertThat(dto.getLines().get(0).getCountedQuantity()).isEqualByComparingTo("25");
         assertThat(dto.getStatus()).isEqualTo("pending-approval");
+        // Correlative, sourced from DocumentSequenceService — not a UUID fragment.
+        assertThat(dto.getFolio()).isEqualTo("ADJ-00003");
     }
 
     // ---- approveAdjustment ----

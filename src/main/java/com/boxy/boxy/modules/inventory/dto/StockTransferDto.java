@@ -27,6 +27,7 @@ public class StockTransferDto {
     private String destinationWarehouseCode;
     private String status;
     private String notes;
+    private String receivingNotes;
     private String requestedByName;
     private String requestedBy;
     private Instant requestedAt;

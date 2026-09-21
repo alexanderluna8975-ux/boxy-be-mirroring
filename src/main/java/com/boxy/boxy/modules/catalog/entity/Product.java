@@ -60,6 +60,13 @@ public class Product {
     @Builder.Default
     private BigDecimal costPrice = BigDecimal.ZERO;
 
+    /** What was actually paid per unit on the most recent goods receipt — unlike {@code costPrice}
+     *  (a weighted average blended with prior stock), this is the raw last-paid figure, and is what
+     *  a new purchase order line's "Costo unitario" should default to. {@code null} until the first
+     *  receipt; see {@code PurchasingService#receiveGoods}. */
+    @Column(name = "last_purchase_cost", precision = 14, scale = 4)
+    private BigDecimal lastPurchaseCost;
+
     @Column(name = "selling_price", nullable = false, precision = 14, scale = 4)
     @Builder.Default
     private BigDecimal sellingPrice = BigDecimal.ZERO;

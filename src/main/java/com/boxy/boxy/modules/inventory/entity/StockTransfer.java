@@ -47,6 +47,12 @@ public class StockTransfer {
     @Column(length = 500)
     private String notes;
 
+        /** Discrepancy note captured at receive time — required whenever any line's received
+     *  quantity comes up short of what shipped. Separate from {@link #notes} (set at creation)
+     *  so approving/re-editing the original request never clobbers the receiving explanation. */
+    @Column(name = "receiving_notes", length = 500)
+    private String receivingNotes;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "requested_by", nullable = false)
     private User requestedBy;

@@ -5,6 +5,7 @@ import com.boxy.boxy.core.response.PageMeta;
 import com.boxy.boxy.core.web.PageableFactory;
 import com.boxy.boxy.modules.administration.dto.CreateUserRequest;
 import com.boxy.boxy.modules.administration.dto.ResetPasswordRequest;
+import com.boxy.boxy.modules.administration.dto.UpdateUserPermissionsRequest;
 import com.boxy.boxy.modules.administration.dto.UpdateUserRequest;
 import com.boxy.boxy.modules.administration.dto.UserDto;
 import com.boxy.boxy.modules.administration.service.UserService;
@@ -85,6 +86,22 @@ public class UserController {
     @Operation(summary = "Toggle user active status")
     public ResponseEntity<ApiResponse<UserDto>> deactivateUser(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(userService.deactivateUser(id)));
+    }
+
+    @PutMapping("/{id:\\d+}/permissions")
+    @PreAuthorize("hasAuthority('users:update') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Update granular permission overrides for a user")
+    public ResponseEntity<ApiResponse<UserDto>> updateUserPermissions(
+            @PathVariable Long id,
+            @RequestBody UpdateUserPermissionsRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(userService.updateUserPermissions(id, request), "User permissions updated successfully"));
+    }
+
+    @DeleteMapping("/{id:\\d+}/permissions")
+    @PreAuthorize("hasAuthority('users:update') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Reset user permissions to role defaults")
+    public ResponseEntity<ApiResponse<UserDto>> resetUserPermissions(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(userService.resetUserPermissions(id), "User permissions reset to role defaults"));
     }
 
     @GetMapping("/check-unique")

@@ -45,6 +45,10 @@ public class PriceAdjustmentLine {
     @Column(name = "previous_margin_percent", precision = 6, scale = 2)
     private BigDecimal previousMarginPercent;
 
-    @Column(name = "margin_percent", nullable = false, precision = 6, scale = 2)
-    private BigDecimal marginPercent;
+    @Column(name = "new_margin_percent", precision = 6, scale = 2)
+    private BigDecimal newMarginPercent;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean overridden = false;
 }

@@ -38,6 +38,10 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
+			<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf</artifactId>
+		</dependency>
 
 		<!-- MySQL & Flyway -->
 		<dependency>
@@ -85,6 +89,26 @@
 			<groupId>org.apache.poi</groupId>
 			<artifactId>poi-ooxml</artifactId>
 			<version>5.3.0</version>
+		</dependency>
+
+		<!-- PDF generation: printable documents (Cotización, Nota de Venta, Nota de Transferencia,
+		     Orden de Compra, Recepción) are authored as Thymeleaf HTML and rendered to PDF via
+		     OpenHTMLtoPDF (Apache 2.0 — iText7's PDF backbone is AGPL/commercial, unsuitable for a
+		     closed-source product). HTML+CSS layout is far more tractable for an invoice-shaped
+		     document than hand-positioning text with a low-level PDF drawing API. -->
+		<dependency>
+			<groupId>io.github.openhtmltopdf</groupId>
+			<artifactId>openhtmltopdf-pdfbox</artifactId>
+			<version>1.1.86</version>
+		</dependency>
+		<!-- Thymeleaf's output is well-formed HTML5, not strict XHTML (unescaped `&`, unclosed
+		     void elements) — Jsoup's W3CDom tolerantly converts it to the DOM OpenHTMLtoPDF needs,
+		     so a stray character in real business data (a product name with "&", say) can't break
+		     PDF rendering the way feeding raw HTML to an XML parser would. -->
+		<dependency>
+			<groupId>org.jsoup</groupId>
+			<artifactId>jsoup</artifactId>
+			<version>1.18.1</version>
 		</dependency>
 
 		<!-- Lombok -->

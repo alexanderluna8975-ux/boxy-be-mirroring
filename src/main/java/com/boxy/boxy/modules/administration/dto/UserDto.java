@@ -21,6 +21,8 @@ public class UserDto {
     private String avatarUrl;
     private String status;
     private List<UserBranchAssignmentDto> branchAssignments;
+    private UserPermissionOverridesDto permissionOverrides;
+    private List<String> permissions;
     private Instant createdAt;
     private Instant updatedAt;
 }

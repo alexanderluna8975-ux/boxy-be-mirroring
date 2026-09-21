@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"/></head>
+<body>
+
+<style th:fragment="styles">
+  @page {
+    size: Letter;
+    margin: 14mm 12mm;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    color: #0f172a;
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.4;
+  }
+
+  .header {
+    display: table;
+    width: 100%;
+    margin-bottom: 3mm;
+  }
+
+  .header-brand,
+  .header-contact {
+    display: table-cell;
+    vertical-align: top;
+    width: 50%;
+  }
+
+  .header-brand {
+    display: table;
+  }
+
+  .brand-mark,
+  .brand-name {
+    display: table-cell;
+    vertical-align: middle;
+  }
+
+  .brand-mark {
+    width: 14mm;
+    padding-right: 3mm;
+  }
+
+  .brand-mark img {
+    max-width: 14mm;
+    max-height: 14mm;
+  }
+
+  .brand-name {
+    font-size: 17pt;
+    font-weight: bold;
+  }
+
+  .header-contact {
+    text-align: right;
+    color: #64748b;
+    font-size: 9pt;
+  }
+
+  .header-contact p {
+    margin: 0 0 0.5mm;
+  }
+
+  .divider {
+    height: 0;
+    margin: 0 0 4mm;
+    border-top: 2px solid #0f172a;
+  }
+
+  .doc-title-row {
+    display: table;
+    width: 100%;
+    margin-bottom: 4mm;
+  }
+
+  .doc-title-row .doc-title {
+    display: table-cell;
+    font-size: 15pt;
+    font-weight: bold;
+  }
+
+  .doc-title-row .doc-folio {
+    display: table-cell;
+    text-align: right;
+    vertical-align: bottom;
+    color: #64748b;
+    font-size: 10pt;
+  }
+
+  .meta-grid {
+    display: table;
+    width: 100%;
+    margin-bottom: 5mm;
+  }
+
+  .meta-col {
+    display: table-cell;
+    width: 50%;
+    vertical-align: top;
+    padding-right: 4mm;
+  }
+
+  .meta-row {
+    display: table;
+    width: 100%;
+    margin-bottom: 1mm;
+  }
+
+  .meta-label,
+  .meta-value {
+    display: table-cell;
+  }
+
+  .meta-label {
+    width: 32%;
+    color: #64748b;
+  }
+
+  .meta-value {
+    font-weight: bold;
+  }
+
+  table.items {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 3mm;
+  }
+
+  table.items thead tr {
+    background: #0f172a;
+  }
+
+  table.items th {
+    padding: 2mm 1.5mm;
+    color: #ffffff;
+    text-align: left;
+    font-size: 9pt;
+    font-weight: bold;
+    white-space: nowrap;
+  }
+
+  table.items td {
+    padding: 1.5mm;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+
+  table.items .numeric {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  table.items .description {
+    font-weight: bold;
+  }
+
+  table.items tfoot td {
+    padding-top: 2mm;
+    border-bottom: none;
+    border-top: 1.5px solid #0f172a;
+  }
+
+  table.items tfoot .total-label {
+    font-weight: bold;
+  }
+
+  table.items tfoot .total-value {
+    font-weight: bold;
+    font-size: 13pt;
+  }
+
+  .amount-words {
+    margin: 0 0 6mm;
+    color: #64748b;
+    font-style: italic;
+  }
+
+  .amount-words .label {
+    font-weight: bold;
+    font-style: normal;
+  }
+
+  .notes {
+    margin: 0 0 6mm;
+    padding: 2mm 3mm;
+    border: 1px solid #e2e8f0;
+    font-size: 9.5pt;
+  }
+
+  .signatures {
+    display: table;
+    width: 100%;
+    margin-top: 12mm;
+  }
+
+  .signature {
+    display: table-cell;
+    width: 50%;
+    text-align: center;
+  }
+
+  .signature .line {
+    margin: 0 8mm 2mm;
+    border-top: 1px solid #0f172a;
+  }
+
+  .signature .caption {
+    font-size: 9.5pt;
+  }
+
+  .footer-note {
+    margin-top: 8mm;
+    text-align: center;
+    color: #64748b;
+    font-size: 9.5pt;
+    font-style: italic;
+  }
+</style>
+
+<!--
+  header(company, docTitle, folio, partyFields, metaFields) — brand (logo/wordmark) on the left,
+  company contact info right-aligned on the right, a divider, then the document title + folio
+  row, then a 2-column meta grid: `partyFields` (the "other party" — customer / supplier /
+  destination warehouse) on the left, `metaFields` (dates, method, validity...) on the right.
+  Both are LinkedHashMap<String,String> so each document controls its own label order without
+  touching this fragment.
+-->
+<div th:fragment="header(company, docTitle, folio, partyFields, metaFields)">
+  <div class="header">
+    <div class="header-brand">
+      <div class="brand-mark" th:if="${company.logoUrl}">
+        <img th:src="${company.logoUrl}" alt="logo"/>
+      </div>
+      <div class="brand-name" th:text="${company.tradeName != null and !company.tradeName.isEmpty()} ? ${company.tradeName} : ${company.name}">EMPRESA</div>
+    </div>
+    <div class="header-contact">
+      <p th:if="${company.slogan}" th:text="${company.slogan}"></p>
+      <p th:if="${company.city}" th:text="${company.city}"></p>
+      <p th:if="${company.phone}">Celular: <span th:text="${company.phone}"></span></p>
+      <p>
+        <span th:text="${company.taxIdLabel} + ': ' + (${company.taxId != null and !company.taxId.isEmpty()} ? ${company.taxId} : '[completar ' + ${company.taxIdLabel} + ']')"></span>
+        &middot;
+        <span th:text="'Dirección: ' + (${company.address != null and !company.address.isEmpty()} ? ${company.address} : '[completar dirección]')"></span>
+      </p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="doc-title-row">
+    <div class="doc-title" th:text="${docTitle}"></div>
+    <div class="doc-folio" th:if="${folio}" th:text="'N.º ' + ${folio}"></div>
+  </div>
+
+  <div class="meta-grid">
+    <div class="meta-col">
+      <div class="meta-row" th:each="entry : ${partyFields}">
+        <span class="meta-label" th:text="${entry.key}"></span>
+        <span class="meta-value" th:text="${entry.value}"></span>
+      </div>
+    </div>
+    <div class="meta-col">
+      <div class="meta-row" th:each="entry : ${metaFields}">
+        <span class="meta-label" th:text="${entry.key}"></span>
+        <span class="meta-value" th:text="${entry.value}"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="signatures" th:fragment="signatures(leftRole, leftName, rightRole, rightName)">
+  <div class="signature">
+    <div class="line"></div>
+    <div class="caption" th:text="${leftRole} + ' — ' + ${leftName}"></div>
+  </div>
+  <div class="signature">
+    <div class="line"></div>
+    <div class="caption" th:text="${rightRole} + ' — ' + ${rightName}"></div>
+  </div>
+</div>
+
+<p class="footer-note" th:fragment="thanks">
+  Agradeciendo su atención a la presente, saludamos a Ud(s) muy atentamente.
+</p>
+
+</body>
+</html>

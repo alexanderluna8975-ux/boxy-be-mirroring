@@ -34,6 +34,10 @@ public class Company {
     @Column(length = 255)
     private String address;
 
+    /** City/country line shown under the address on printed documents (e.g. "Cochabamba - Bolivia"). */
+    @Column(length = 100)
+    private String city;
+
     @Column(name = "logo_url", length = 500)
     private String logoUrl;
 
