@@ -30,8 +30,20 @@ public class PriceAdjustment {
     @Column(nullable = false, unique = true, length = 50)
     private String folio;
 
-    @Column(name = "margin_percent", nullable = false, precision = 6, scale = 2)
-    private BigDecimal marginPercent;
+    @Column(nullable = false, length = 20)
+    private String tariff; // "increase" | "decrease"
+
+    @Column(nullable = false, length = 20)
+    private String unit; // "percent" | "amount"
+
+    @Column(nullable = false, precision = 14, scale = 4)
+    private BigDecimal amount;
+
+    @Column(name = "based_on", nullable = false, length = 20)
+    private String basedOn; // "sale-price" | "cost"
+
+    @Column(name = "rounding_mode", nullable = false, length = 20)
+    private String roundingMode;
 
     @Column(columnDefinition = "TEXT")
     private String notes;

@@ -1004,13 +1004,18 @@ public class SalesService {
         PriceAdjustment pa = PriceAdjustment.builder()
                 .company(company)
                 .folio(folio)
-                .marginPercent(request.getMarginPercent())
+                .tariff(request.getTariff())
+                .unit(request.getUnit())
+                .amount(request.getAmount())
+                .basedOn(request.getBasedOn())
+                .roundingMode(request.getRoundingMode())
                 .notes(request.getNotes())
                 .appliedBy(appliedBy)
                 .appliedAt(Instant.now())
                 .build();
 
-        BigDecimal targetMargin = request.getMarginPercent();
+        boolean basedOnCost = "cost".equals(request.getBasedOn());
+        Map<String, BigDecimal> overrides = request.getOverrides() != null ? request.getOverrides() : Map.of();
 
         for (String rawId : request.getProductIds()) {
             Long prodId;
@@ -1025,17 +1030,24 @@ public class SalesService {
                 continue;
             }
 
-            BigDecimal cost = product.getCostPrice() != null && product.getCostPrice().compareTo(BigDecimal.ZERO) > 0
-                    ? product.getCostPrice()
-                    : BigDecimal.ZERO;
+            BigDecimal cost = product.getCostPrice() != null ? product.getCostPrice() : BigDecimal.ZERO;
+            BigDecimal prevSalePrice = product.getSellingPrice() != null ? product.getSellingPrice() : BigDecimal.ZERO;
 
-            if (cost.compareTo(BigDecimal.ZERO) <= 0) {
+            // Skip only when the formula would actually need a cost to work from — repricing off
+            // the current sale price never reads cost, so a product with none is still valid.
+            if (basedOnCost && cost.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }
 
-            BigDecimal prevSalePrice = product.getSellingPrice() != null ? product.getSellingPrice() : BigDecimal.ZERO;
-            BigDecimal newSalePrice = computeSalePrice(cost, targetMargin);
+            BigDecimal basePrice = basedOnCost ? cost : prevSalePrice;
+            BigDecimal override = overrides.get(rawId);
+            boolean overridden = override != null;
+            BigDecimal newSalePrice = overridden
+                    ? override.setScale(4, java.math.RoundingMode.HALF_UP)
+                    : PriceAdjustmentCalculator.computeAdjustedPrice(
+                            basePrice, request.getTariff(), request.getUnit(), request.getAmount(), request.getRoundingMode());
             BigDecimal prevMargin = computeMarginPercent(prevSalePrice, cost);
+            BigDecimal newMargin = computeMarginPercent(newSalePrice, cost);
 
             PriceAdjustmentLine line = PriceAdjustmentLine.builder()
                     .priceAdjustment(pa)
@@ -1046,7 +1058,8 @@ public class SalesService {
                     .previousSalePrice(prevSalePrice)
                     .newSalePrice(newSalePrice)
                     .previousMarginPercent(prevMargin)
-                    .marginPercent(targetMargin)
+                    .newMarginPercent(newMargin)
+                    .overridden(overridden)
                     .build();
 
             pa.getLines().add(line);
@@ -1061,16 +1074,6 @@ public class SalesService {
 
         PriceAdjustment saved = priceAdjustmentRepository.save(pa);
         return toPriceAdjustmentDto(saved);
-    }
-
-    private BigDecimal computeSalePrice(BigDecimal cost, BigDecimal targetMarginPercent) {
-        if (cost == null || cost.compareTo(BigDecimal.ZERO) <= 0 ||
-            targetMarginPercent == null || targetMarginPercent.compareTo(BigDecimal.ZERO) < 0 ||
-            targetMarginPercent.compareTo(new BigDecimal("100")) >= 0) {
-            return cost != null ? cost : BigDecimal.ZERO;
-        }
-        BigDecimal factor = BigDecimal.ONE.subtract(targetMarginPercent.divide(new BigDecimal("100"), 6, java.math.RoundingMode.HALF_UP));
-        return cost.divide(factor, 2, java.math.RoundingMode.HALF_UP);
     }
 
     private BigDecimal computeMarginPercent(BigDecimal salePrice, BigDecimal cost) {
@@ -1092,7 +1095,8 @@ public class SalesService {
                         .previousSalePrice(l.getPreviousSalePrice())
                         .newSalePrice(l.getNewSalePrice())
                         .previousMarginPercent(l.getPreviousMarginPercent())
-                        .marginPercent(l.getMarginPercent())
+                        .newMarginPercent(l.getNewMarginPercent())
+                        .overridden(Boolean.TRUE.equals(l.getOverridden()))
                         .build())
                 .toList();
 
@@ -1113,7 +1117,11 @@ public class SalesService {
         return PriceAdjustmentDto.builder()
                 .id(pa.getId())
                 .folio(pa.getFolio())
-                .marginPercent(pa.getMarginPercent())
+                .tariff(pa.getTariff())
+                .unit(pa.getUnit())
+                .amount(pa.getAmount())
+                .basedOn(pa.getBasedOn())
+                .roundingMode(pa.getRoundingMode())
                 .notes(pa.getNotes())
                 .lines(lineDtos)
                 .appliedBy(pa.getAppliedBy())

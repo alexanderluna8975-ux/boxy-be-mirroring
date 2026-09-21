@@ -16,7 +16,11 @@ import java.util.List;
 public class PriceAdjustmentDto {
     private Long id;
     private String folio;
-    private BigDecimal marginPercent;
+    private String tariff;
+    private String unit;
+    private BigDecimal amount;
+    private String basedOn;
+    private String roundingMode;
     private String notes;
     private List<PriceAdjustmentLineDto> lines;
     private String appliedBy;
