@@ -17,6 +17,8 @@ import com.boxy.boxy.modules.administration.repository.CompanyRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.administration.repository.WarehouseRepository;
 import com.boxy.boxy.modules.catalog.entity.Product;
+import com.boxy.boxy.modules.catalog.entity.ProductCostHistory;
+import com.boxy.boxy.modules.catalog.repository.ProductCostHistoryRepository;
 import com.boxy.boxy.modules.catalog.repository.ProductRepository;
 import com.boxy.boxy.modules.inventory.entity.StockLevel;
 import com.boxy.boxy.modules.inventory.entity.StockMovement;
@@ -32,10 +34,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -59,6 +63,7 @@ public class PurchasingService {
     private final CompanyRepository companyRepository;
     private final DocumentSequenceService documentSequenceService;
     private final PdfDocumentService pdfDocumentService;
+    private final ProductCostHistoryRepository productCostHistoryRepository;
 
     /** For `LocalDate` fields (issue/expected-delivery date) — no time-of-day to show. */
     private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy");
@@ -338,6 +343,54 @@ public class PurchasingService {
         return toPoDto(purchaseOrderRepository.save(po));
     }
 
+    /**
+     * Corrects a single line's quantity, cost — and optionally the product's sale price — inline,
+     * while the reviewer is deciding whether to approve. SUBMITTED only: once approved, the order
+     * is sent to the supplier and its committed numbers shouldn't silently drift.
+     */
+    @Transactional
+    public PurchaseOrderDto updatePurchaseOrderLine(Long id, Long productId, UpdatePurchaseOrderLineRequest request) {
+        PurchaseOrder po = findPoOrThrow(id);
+        requireStatus(po, "editar", "SUBMITTED");
+
+        if (request == null || request.getQuantity() == null || request.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("INVALID_QUANTITY", "La cantidad debe ser mayor a cero.");
+        }
+        if (request.getUnitCost() == null || request.getUnitCost().compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("INVALID_COST", "El costo unitario no puede ser negativo.");
+        }
+
+        PurchaseOrderItem item = po.getItems().stream()
+                .filter(candidate -> candidate.getProduct() != null && productId.equals(candidate.getProduct().getId()))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrderItem", productId));
+
+        item.setQuantityOrdered(request.getQuantity());
+        item.setUnitCost(request.getUnitCost());
+        BigDecimal lineTotal = request.getQuantity().multiply(request.getUnitCost());
+        BigDecimal lineTax = lineTotal.multiply(item.getTaxRate() != null ? item.getTaxRate() : BigDecimal.ZERO);
+        item.setTotalCost(lineTotal.add(lineTax));
+
+        if (request.getSalePrice() != null && request.getSalePrice().compareTo(BigDecimal.ZERO) >= 0) {
+            Product product = item.getProduct();
+            product.setSellingPrice(request.getSalePrice());
+            productRepository.save(product);
+        }
+
+        BigDecimal subtotal = BigDecimal.ZERO;
+        BigDecimal taxTotal = BigDecimal.ZERO;
+        for (PurchaseOrderItem line : po.getItems()) {
+            BigDecimal lineSubtotal = line.getQuantityOrdered().multiply(line.getUnitCost());
+            subtotal = subtotal.add(lineSubtotal);
+            taxTotal = taxTotal.add(lineSubtotal.multiply(line.getTaxRate() != null ? line.getTaxRate() : BigDecimal.ZERO));
+        }
+        po.setSubtotal(subtotal);
+        po.setTaxAmount(taxTotal);
+        po.setTotalAmount(subtotal.add(taxTotal));
+
+        return toPoDto(purchaseOrderRepository.save(po));
+    }
+
     private static final Set<String> PO_TERMINAL_STATUSES = Set.of("RECEIVED", "COMPLETED", "CANCELLED");
 
     private PurchaseOrder findPoOrThrow(Long id) {
@@ -364,11 +417,16 @@ public class PurchasingService {
         return toPoDto(purchaseOrderRepository.save(po));
     }
 
+    /**
+     * Approving now IS sending — one action, not two. Lands straight on {@code ORDERED} instead of
+     * stopping at {@code APPROVED} and waiting for a separate "Marcar como Enviada" click, same
+     * simplification already applied to inventory transfers (approve = dispatch there too).
+     */
     @Transactional
     public PurchaseOrderDto approvePurchaseOrder(Long id) {
         PurchaseOrder po = findPoOrThrow(id);
         requireStatus(po, "aprobar", "SUBMITTED");
-        po.setStatus("APPROVED");
+        po.setStatus("ORDERED");
         return toPoDto(purchaseOrderRepository.save(po));
     }
 
@@ -401,11 +459,16 @@ public class PurchasingService {
         return toPoDto(purchaseOrderRepository.save(po));
     }
 
+    /** Orders actually open to receive against — approved and sent to the supplier, not merely
+     *  requested. Excludes DRAFT/SUBMITTED (still pending approval), REJECTED, and the terminal
+     *  RECEIVED/COMPLETED/CANCELLED states. */
+    private static final Set<String> RECEIVABLE_PO_STATUSES = Set.of("ORDERED", "PARTIALLY_RECEIVED");
+
     @Transactional(readOnly = true)
     public List<PurchaseOrderDto> getPendingPurchaseOrders() {
         Long companyId = SecurityUtils.getCurrentCompanyId();
         return purchaseOrderRepository.findByCompanyId(companyId).stream()
-                .filter(po -> !"RECEIVED".equalsIgnoreCase(po.getStatus()) && !"CANCELLED".equalsIgnoreCase(po.getStatus()))
+                .filter(po -> RECEIVABLE_PO_STATUSES.contains(po.getStatus() == null ? "" : po.getStatus().toUpperCase()))
                 .map(this::toPoDto)
                 .toList();
     }
@@ -517,6 +580,8 @@ public class PurchasingService {
                 .createdBy(user)
                 .build();
 
+        List<ProductCostHistory> costHistoryEntries = new ArrayList<>();
+
         if (request.getItems() != null) {
             for (var itemReq : request.getItems()) {
                 Product product = productRepository.findByIdAndDeletedAtIsNull(itemReq.getProductId())
@@ -549,6 +614,21 @@ public class PurchasingService {
                                 .quantityInTransit(BigDecimal.ZERO)
                                 .build());
 
+                // Weighted-average cost across every warehouse — captured BEFORE this line's stock
+                // is applied, so it reflects what was on hand right up to this receipt.
+                BigDecimal previousTotalStock = stockLevelRepository.getTotalAvailableStockByProductId(product.getId());
+                BigDecimal previousCost = product.getCostPrice() != null ? product.getCostPrice() : BigDecimal.ZERO;
+                BigDecimal newTotalStock = previousTotalStock.add(qtyReceived);
+                BigDecimal newCost = newTotalStock.compareTo(BigDecimal.ZERO) > 0
+                        ? previousTotalStock.multiply(previousCost).add(qtyReceived.multiply(unitCost))
+                                .divide(newTotalStock, 4, RoundingMode.HALF_UP)
+                        : unitCost;
+                product.setCostPrice(newCost);
+                // Unlike costPrice (blended above), this is exactly what was paid on this receipt —
+                // what a new purchase order line should default its "Costo unitario" to.
+                product.setLastPurchaseCost(unitCost);
+                productRepository.save(product);
+
                 BigDecimal currStock = stock.getQuantityAvailable() != null ? stock.getQuantityAvailable() : BigDecimal.ZERO;
                 stock.setQuantityAvailable(currStock.add(qtyReceived));
                 stockLevelRepository.save(stock);
@@ -575,6 +655,16 @@ public class PurchasingService {
                         .unitCost(unitCost)
                         .build();
                 receipt.getItems().add(grItem);
+
+                // Cost-history row — saved after `receipt` gets its ID (see below).
+                costHistoryEntries.add(ProductCostHistory.builder()
+                        .product(product)
+                        .previousCost(previousCost)
+                        .newCost(newCost)
+                        .unitCost(unitCost)
+                        .quantityReceived(qtyReceived)
+                        .createdBy(user)
+                        .build());
             }
         }
 
@@ -587,6 +677,15 @@ public class PurchasingService {
         purchaseOrderRepository.save(po);
 
         GoodsReceipt saved = goodsReceiptRepository.save(receipt);
+
+        if (!costHistoryEntries.isEmpty()) {
+            for (ProductCostHistory entry : costHistoryEntries) {
+                entry.setGoodsReceiptId(saved.getId());
+                entry.setGoodsReceiptNumber(saved.getReceiptNumber());
+            }
+            productCostHistoryRepository.saveAll(costHistoryEntries);
+        }
+
         return toReceiptDto(saved);
     }
 
@@ -637,6 +736,7 @@ public class PurchasingService {
                         .quantity(i.getQuantityOrdered())
                         .unitCost(i.getUnitCost())
                         .unitPrice(i.getUnitCost())
+                        .salePrice(i.getProduct().getSellingPrice())
                         .taxRate(i.getTaxRate())
                         .totalCost(i.getTotalCost())
                         .lineTotal(i.getTotalCost())
