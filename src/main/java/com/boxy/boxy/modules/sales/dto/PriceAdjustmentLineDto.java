@@ -20,5 +20,6 @@ public class PriceAdjustmentLineDto {
     private BigDecimal previousSalePrice;
     private BigDecimal newSalePrice;
     private BigDecimal previousMarginPercent;
-    private BigDecimal marginPercent;
+    private BigDecimal newMarginPercent;
+    private boolean overridden;
 }
