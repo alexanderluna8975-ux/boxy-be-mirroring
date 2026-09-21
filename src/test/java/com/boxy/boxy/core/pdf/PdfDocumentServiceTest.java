@@ -41,9 +41,14 @@ class PdfDocumentServiceTest {
     }
 
     private static Map<String, Object> fakeCompany() {
+        // Every field the templates reference must be present as a *key*, even when null — a real
+        // `Company` JPA entity always exposes these as bean getters (so production is unaffected),
+        // but Spring's `MapAccessor` only resolves a Map property when `containsKey()` is true;
+        // an absent key falls through to reflection and throws, unlike a present-but-null one.
         Map<String, Object> company = new HashMap<>();
         company.put("name", "Acme Distribuidora");
         company.put("tradeName", "Acme");
+        company.put("slogan", "Distribuidora de herramientas y equipo de construcción");
         company.put("address", "Av. Central 123");
         company.put("city", "Cochabamba - Bolivia");
         company.put("taxId", "1234567");
@@ -51,6 +56,7 @@ class PdfDocumentServiceTest {
         company.put("phone", "71706123");
         company.put("logoUrl", null);
         company.put("currencySymbol", "Bs.");
+        company.put("primaryColor", "#e8590c");
         return company;
     }
 
@@ -72,11 +78,12 @@ class PdfDocumentServiceTest {
 
         Map<String, Object> metaFields = new LinkedHashMap<>();
         metaFields.put("Fecha Cotizada", "25-06-2026");
-        metaFields.put("Número cotización", "1108");
+        metaFields.put("Validez", "Hasta 25-07-2026 (30 días)");
 
         Map<String, Object> model = new HashMap<>();
         model.put("company", fakeCompany());
         model.put("docTitle", "COTIZACIÓN");
+        model.put("folio", "1108");
         model.put("priceColumnLabel", "Precio");
         model.put("total", BigDecimal.valueOf(10400));
         model.put("notes", "");
@@ -130,6 +137,7 @@ class PdfDocumentServiceTest {
         Map<String, Object> model = new HashMap<>();
         model.put("company", fakeCompany());
         model.put("docTitle", "ORDEN DE COMPRA");
+        model.put("folio", "PO-00042");
         model.put("priceColumnLabel", "Costo");
         model.put("total", BigDecimal.valueOf(500));
         model.put("notes", "");

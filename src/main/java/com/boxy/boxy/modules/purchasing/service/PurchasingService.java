@@ -244,11 +244,11 @@ public class PurchasingService {
         if (po.getExpectedDeliveryDate() != null) {
             metaFields.put("Entrega Estimada", PDF_DATE.format(po.getExpectedDeliveryDate()));
         }
-        metaFields.put("N.º de Orden", po.getOrderNumber());
 
         Map<String, Object> model = new HashMap<>();
         model.put("company", company);
         model.put("docTitle", "ORDEN DE COMPRA");
+        model.put("folio", po.getOrderNumber());
         model.put("priceColumnLabel", "Costo");
         model.put("total", po.getTotalAmount());
         model.put("notes", po.getNotes() != null ? po.getNotes() : "");
@@ -256,7 +256,7 @@ public class PurchasingService {
         model.put("partyFields", partyFields);
         model.put("metaFields", metaFields);
         model.put("amountInWords", AmountInWordsEs.format(po.getTotalAmount(), company.getCurrencySymbol()));
-        model.put("sellerName", po.getCreatedBy() != null ? po.getCreatedBy().getFullName() : "");
+        model.put("sellerName", po.getCreatedBy() != null ? po.getCreatedBy().getFullName() : company.getTradeName());
         model.put("leftRoleLabel", "Solicitado por");
         model.put("rightRoleLabel", "Autorizado por");
 
@@ -535,11 +535,11 @@ public class PurchasingService {
         if (isNotBlank(receipt.getSupplierInvoiceNumber())) {
             metaFields.put("Factura del Proveedor", receipt.getSupplierInvoiceNumber());
         }
-        metaFields.put("N.º de Recepción", receipt.getReceiptNumber());
 
         Map<String, Object> model = new HashMap<>();
         model.put("company", company);
         model.put("docTitle", "RECEPCIÓN DE MERCADERÍA");
+        model.put("folio", receipt.getReceiptNumber());
         model.put("priceColumnLabel", "Costo");
         model.put("total", total);
         model.put("notes", receipt.getNotes() != null ? receipt.getNotes() : "");
@@ -547,7 +547,8 @@ public class PurchasingService {
         model.put("partyFields", partyFields);
         model.put("metaFields", metaFields);
         model.put("amountInWords", company != null ? AmountInWordsEs.format(total, company.getCurrencySymbol()) : "");
-        model.put("sellerName", receipt.getCreatedBy() != null ? receipt.getCreatedBy().getFullName() : "");
+        model.put("sellerName", receipt.getCreatedBy() != null ? receipt.getCreatedBy().getFullName()
+                : (company != null ? company.getTradeName() : ""));
         model.put("leftRoleLabel", "Entregado por");
         model.put("rightRoleLabel", "Recibido por");
 

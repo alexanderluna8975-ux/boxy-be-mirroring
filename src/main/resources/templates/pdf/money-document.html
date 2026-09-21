@@ -7,7 +7,7 @@
 </head>
 <body>
 
-<div th:replace="~{pdf/fragments/document :: header(${company}, ${docTitle}, ${partyFields}, ${metaFields})}"></div>
+<div th:replace="~{pdf/fragments/document :: header(${company}, ${docTitle}, ${folio}, ${partyFields}, ${metaFields})}"></div>
 
 <table class="items">
   <thead>
@@ -27,15 +27,15 @@
       <td th:text="${line.unitName}"></td>
       <td th:text="${line.sku}"></td>
       <td class="description" th:text="${line.description}"></td>
-      <td class="numeric" th:text="${#numbers.formatDecimal(line.unitPrice, 1, 2)}"></td>
-      <td class="numeric" th:text="${#numbers.formatDecimal(line.discount, 1, 2)}"></td>
-      <td class="numeric" th:text="${#numbers.formatDecimal(line.subtotal, 1, 2)}"></td>
+      <td class="numeric" th:text="${#numbers.formatDecimal(line.unitPrice, 1, 'COMMA', 2, 'POINT')}"></td>
+      <td class="numeric" th:text="${#numbers.formatDecimal(line.discount, 1, 'COMMA', 2, 'POINT')}"></td>
+      <td class="numeric" th:text="${#numbers.formatDecimal(line.subtotal, 1, 'COMMA', 2, 'POINT')}"></td>
     </tr>
   </tbody>
   <tfoot>
     <tr>
-      <td colspan="6" class="total-label">TOTAL</td>
-      <td class="numeric" th:text="${#numbers.formatDecimal(total, 1, 2)}"></td>
+      <td colspan="6" class="total-label">Total</td>
+      <td class="numeric total-value" th:style="'color:' + ${company.primaryColor}" th:text="${company.currencySymbol} + ' ' + ${#numbers.formatDecimal(total, 1, 'COMMA', 2, 'POINT')}"></td>
     </tr>
   </tfoot>
 </table>

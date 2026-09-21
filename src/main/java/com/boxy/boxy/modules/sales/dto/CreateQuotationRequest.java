@@ -22,6 +22,9 @@ public class CreateQuotationRequest {
     private String notes;
     private String validUntil;
 
+    @Builder.Default
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
     @JsonAlias({"lines", "items"})
     private List<QuotationLineRequest> lines;
 
