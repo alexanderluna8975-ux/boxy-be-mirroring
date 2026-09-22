@@ -16,4 +16,5 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     long countByCompanyId(Long companyId);
     Optional<Invoice> findByIdempotencyKey(String idempotencyKey);
     Optional<Invoice> findByBranchIdAndDocumentTypeAndSeriesAndNumber(Long branchId, String documentType, String series, String number);
+    Optional<Invoice> findFirstBySalesOrderId(Long salesOrderId);
 }
