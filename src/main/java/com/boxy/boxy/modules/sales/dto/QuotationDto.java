@@ -30,6 +30,10 @@ public class QuotationDto {
     private Instant validUntil;
     private List<QuotationLineDto> lines;
     private Instant createdAt;
+    /** Set once converted to a sale — the resulting Invoice's id/folio, so the
+     *  detail page can link straight to its Nota de Venta. */
+    private Long saleId;
+    private String saleFolio;
 
     @Data
     @Builder
