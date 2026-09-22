@@ -358,6 +358,8 @@ public class SalesService {
                         .build())
                 .toList();
 
+        Invoice resultingInvoice = invoiceRepository.findFirstBySalesOrderId(so.getId()).orElse(null);
+
         return QuotationDto.builder()
                 .id(so.getId())
                 .folio(so.getOrderNumber())
@@ -375,6 +377,8 @@ public class SalesService {
                 .validUntil(so.getValidUntil())
                 .lines(lines)
                 .createdAt(so.getCreatedAt())
+                .saleId(resultingInvoice != null ? resultingInvoice.getId() : null)
+                .saleFolio(resultingInvoice != null ? invoiceFolio(resultingInvoice) : null)
                 .build();
     }
 
@@ -512,12 +516,19 @@ public class SalesService {
         BigDecimal discountTotal = request.getDiscountAmount() != null ? request.getDiscountAmount() : BigDecimal.ZERO;
         BigDecimal taxTotal = BigDecimal.ZERO;
 
+            // Links the resulting invoice back to the quotation it was converted from
+        // (Ventas' "Ver Nota de Venta" column needs this to resolve the other way).
+        SalesOrder sourceQuotation = request.getQuotationId() != null
+                ? salesOrderRepository.findById(request.getQuotationId()).orElse(null)
+                : null;
+
         Invoice invoice = Invoice.builder()
                 .company(company)
                 .branch(branch)
                 .warehouse(warehouse)
                 .cashierSession(session)
                 .customer(customer)
+                .salesOrder(sourceQuotation)
                 .documentType(request.getDocumentType() != null ? request.getDocumentType().toUpperCase() : "TICKET")
                 .series(series)
                 .number(number)
@@ -985,6 +996,7 @@ public class SalesService {
                 .balanceDue(balanceDue)
                 .creditTermDays(inv.getCreditTermDays())
                 .dueDate(inv.getDueDate())
+                .quotationId(inv.getSalesOrder() != null ? inv.getSalesOrder().getId() : null)
                 .status(saleStatus)
                 .voidedAt("voided".equals(saleStatus) ? inv.getCreatedAt() : null)
                 .voidedBy("voided".equals(saleStatus) ? "Admin" : null)
@@ -1203,9 +1215,18 @@ public class SalesService {
         boolean includeSales = kind == null || kind.isBlank() || "sale".equalsIgnoreCase(kind);
         boolean includeQuotations = kind == null || kind.isBlank() || "quotation".equalsIgnoreCase(kind);
 
+        // Built once and reused by the quotations loop below to resolve each
+        // converted quotation's resulting Invoice ("Ver Nota de Venta").
+        List<Invoice> allInvoices = invoiceRepository.findByCompanyId(companyId);
+        Map<Long, Invoice> invoiceBySalesOrderId = new HashMap<>();
+        for (Invoice inv : allInvoices) {
+            if (inv.getSalesOrder() != null) {
+                invoiceBySalesOrderId.put(inv.getSalesOrder().getId(), inv);
+            }
+        }
+
         if (includeSales) {
-            List<Invoice> invoices = invoiceRepository.findByCompanyId(companyId);
-            for (Invoice inv : invoices) {
+            for (Invoice inv : allInvoices) {
                 if (branchId != null && inv.getBranch() != null && !branchId.equals(inv.getBranch().getId())) {
                     continue;
                 }
@@ -1231,7 +1252,14 @@ public class SalesService {
                 if (customerId != null && so.getCustomer() != null && !customerId.equals(so.getCustomer().getId())) {
                     continue;
                 }
-                docs.add(toQuotationDocumentDto(so));
+                // A quotation converted to a credit sale (`status = "credit"`) belongs
+                // exclusively to Cuentas por Cobrar until the resulting Invoice is fully
+                // paid — the underlying sale then appears on its own via `isFullyPaid`
+                // above, so this quotation row must not also show up in the meantime.
+                if ("credit".equalsIgnoreCase(so.getStatus())) {
+                    continue;
+                }
+                docs.add(toQuotationDocumentDto(so, invoiceBySalesOrderId.get(so.getId())));
             }
         }
 
@@ -1371,10 +1399,14 @@ public class SalesService {
         return paid.compareTo(total) >= 0;
     }
 
-    private SalesDocumentDto toSaleDocumentDto(Invoice inv) {
-        String folio = inv.getSeries() != null && inv.getNumber() != null
+    private String invoiceFolio(Invoice inv) {
+        return inv.getSeries() != null && inv.getNumber() != null
                 ? inv.getSeries() + "-" + inv.getNumber()
                 : "V-" + String.format("%05d", inv.getId());
+    }
+
+    private SalesDocumentDto toSaleDocumentDto(Invoice inv) {
+        String folio = invoiceFolio(inv);
 
         BigDecimal total = inv.getTotalAmount() != null ? inv.getTotalAmount() : BigDecimal.ZERO;
         BigDecimal paid = inv.getPayments().stream()
@@ -1414,7 +1446,7 @@ public class SalesService {
                 .build();
     }
 
-    private SalesDocumentDto toQuotationDocumentDto(SalesOrder so) {
+    private SalesDocumentDto toQuotationDocumentDto(SalesOrder so, Invoice resultingInvoice) {
         String folio = so.getOrderNumber() != null ? so.getOrderNumber() : "COT-" + String.format("%05d", so.getId());
         BigDecimal total = so.getTotalAmount() != null ? so.getTotalAmount() : BigDecimal.ZERO;
 
@@ -1432,6 +1464,8 @@ public class SalesService {
                 .balanceDue(BigDecimal.ZERO)
                 .quotationStatus(so.getStatus() != null ? so.getStatus().toLowerCase() : "draft")
                 .branchId(so.getBranch() != null ? String.valueOf(so.getBranch().getId()) : "1")
+                .saleId(resultingInvoice != null ? String.valueOf(resultingInvoice.getId()) : null)
+                .saleFolio(resultingInvoice != null ? invoiceFolio(resultingInvoice) : null)
                 .build();
     }
 
