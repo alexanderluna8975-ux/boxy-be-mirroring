@@ -9,6 +9,7 @@ import com.boxy.boxy.modules.administration.entity.Branch;
 import com.boxy.boxy.modules.administration.entity.Warehouse;
 import com.boxy.boxy.modules.administration.repository.BranchRepository;
 import com.boxy.boxy.modules.administration.repository.WarehouseRepository;
+import com.boxy.boxy.modules.catalog.repository.ProductRepository;
 import com.boxy.boxy.modules.inventory.repository.StockLevelRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ public class WarehouseService {
     private final WarehouseRepository warehouseRepository;
     private final BranchRepository branchRepository;
     private final StockLevelRepository stockLevelRepository;
+    private final ProductRepository productRepository;
     private final AuditLogService auditLogService;
 
     @Transactional(readOnly = true)
@@ -120,7 +122,11 @@ public class WarehouseService {
     public WarehouseDto toDto(Warehouse w) {
         boolean active = Boolean.TRUE.equals(w.getIsActive());
         Branch branch = w.getBranch();
-        int productCount = stockLevelRepository.countDistinctProductsByWarehouseId(w.getId());
+        // Matches what the warehouse's own detail page lists (every active company
+        // product, not just the ones with quantityAvailable > 0) — see
+        // InventoryService.getStockLevelsByWarehouse.
+        Long companyId = branch != null ? branch.getCompany().getId() : null;
+        long productCount = companyId != null ? productRepository.countByCompanyIdAndIsActiveTrueAndDeletedAtIsNull(companyId) : 0;
         BigDecimal stockValue = stockLevelRepository.calculateStockValueByWarehouseId(w.getId());
 
         return WarehouseDto.builder()
@@ -133,7 +139,7 @@ public class WarehouseService {
                 .isDefault(Boolean.TRUE.equals(w.getIsDefault()))
                 .isActive(active)
                 .status(active ? "active" : "inactive")
-                .productCount(productCount)
+                .productCount((int) productCount)
                 .stockValue(stockValue != null ? stockValue : BigDecimal.ZERO)
                 .build();
     }

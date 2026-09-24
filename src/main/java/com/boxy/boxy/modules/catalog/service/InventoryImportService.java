@@ -348,7 +348,7 @@ public class InventoryImportService {
     }
 
     private String detectFileType(ColumnMapping m) {
-        if (m.quantityCol != -1 && m.totalCostCol != -1) {
+        if (m.quantityCol != -1) {
             return "INVENTORY";
         }
         if (m.invoicePriceCol != -1) {
@@ -483,7 +483,7 @@ public class InventoryImportService {
             ColumnMapping m = new ColumnMapping();
             for (int i = 0; i < headers.size(); i++) {
                 String h = headers.get(i).trim().toUpperCase();
-                if (h.contains("CÓDIGO ÍTEM") || h.contains("CODIGO ITEM") || h.contains("CODIGO_ITEM")) {
+                if (h.contains("CÓDIGO ÍTEM") || h.contains("CÓDIGO ITEM") || h.contains("CODIGO ITEM") || h.contains("CODIGO_ITEM")) {
                     m.barcodeCol = i;
                 } else if (h.contains("CÓDIGO") || h.contains("CODIGO") || h.equals("SKU")) {
                     m.skuCol = i;

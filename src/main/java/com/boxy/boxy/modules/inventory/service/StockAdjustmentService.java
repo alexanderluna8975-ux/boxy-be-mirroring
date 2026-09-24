@@ -52,8 +52,6 @@ public class StockAdjustmentService {
 
     public static final List<AdjustmentReasonDto> REASONS = List.of(
             new AdjustmentReasonDto("1", "Conteo físico / Inventario cíclico"),
-            new AdjustmentReasonDto("2", "Merma / Producto dañado"),
-            new AdjustmentReasonDto("3", "Vencimiento / Caducidad"),
             new AdjustmentReasonDto("4", "Robo / Extravío"),
             new AdjustmentReasonDto("5", "Corrección administrativa")
     );

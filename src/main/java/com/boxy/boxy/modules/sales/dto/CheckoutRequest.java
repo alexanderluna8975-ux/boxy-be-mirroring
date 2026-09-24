@@ -19,6 +19,8 @@ public class CheckoutRequest {
     private String idempotencyKey;
 
     private BigDecimal discountAmount = BigDecimal.ZERO;
+    /** Cash "redondeo" — a small ± correction to the final total, never a discount. */
+    private BigDecimal roundingAdjustment = BigDecimal.ZERO;
     private String paymentMethod;
     private BigDecimal amountTendered;
 

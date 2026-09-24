@@ -156,12 +156,14 @@ class SalesServiceTest {
     }
 
     /**
-     * Regression for POS: `searchCatalog` used to hard-code `PageRequest.of(0, 50)`, so any
-     * catalog bigger than 50 products silently lost items past that page (only reachable by an
-     * exact barcode scan). Confirms the repository is now asked for a much larger page.
+     * Regression for POS: `searchCatalog` used to hard-code a fixed page size (first 50, later
+     * 500), so any catalog bigger than that silently lost items past the page (only reachable by
+     * an exact barcode scan) — confirmed to actually bite once a real Excel import pushed the
+     * catalog past 500 SKUs. Confirms the repository is now asked for the whole active set,
+     * unpaged, instead of guessing a new fixed ceiling.
      */
     @Test
-    void searchCatalogRequestsAPageLargeEnoughForARealCatalog() {
+    void searchCatalogRequestsTheWholeCatalogUnpaged() {
         when(productRepository.findAllFiltered(any(), any(), any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of()));
 
@@ -169,7 +171,7 @@ class SalesServiceTest {
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(productRepository).findAllFiltered(any(), any(), any(), any(), any(), pageableCaptor.capture());
-        assertThat(pageableCaptor.getValue().getPageSize()).isGreaterThanOrEqualTo(500);
+        assertThat(pageableCaptor.getValue().isPaged()).isFalse();
     }
 
     /**

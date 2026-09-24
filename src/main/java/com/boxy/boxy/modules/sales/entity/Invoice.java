@@ -93,6 +93,13 @@ public class Invoice {
     @Builder.Default
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
+    /** Cash "redondeo" — a small ± correction the cashier applies at checkout to land on a
+     *  cash-friendly figure (e.g. 530.45 → 530.50), never a discount, kept in its own column
+     *  so {@link #discountAmount} stays a genuine discount for reporting. */
+    @Column(name = "rounding_adjustment", nullable = false, precision = 14, scale = 4)
+    @Builder.Default
+    private BigDecimal roundingAdjustment = BigDecimal.ZERO;
+
     @Column(nullable = false, length = 20)
     @Builder.Default
     private String status = "ISSUED"; // ISSUED, VOIDED

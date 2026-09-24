@@ -24,6 +24,7 @@ public class CatalogItemDto {
     private String categoryName;
     private Long brandId;
     private String brandName;
+    private Long unitId;
     private String unitName;
     private String imageUrl;
     private List<ProductDto.BranchStockDto> stockByBranch;

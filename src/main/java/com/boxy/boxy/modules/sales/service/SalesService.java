@@ -28,7 +28,6 @@ import com.boxy.boxy.modules.sales.entity.*;
 import com.boxy.boxy.modules.sales.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -161,11 +160,12 @@ public class SalesService {
     @Transactional(readOnly = true)
     public List<CatalogItemDto> searchCatalog(String term) {
         Long companyId = SecurityUtils.getCurrentCompanyId();
-        // Was capped at 50 — POS loads this once and filters client-side as the cashier types, so
-        // any catalog bigger than the page size silently lost products past it (findable only by
-        // an exact barcode scan, a separate query). 500 matches the "fetch the whole active set
-        // once" precedent used elsewhere (Purchasing, Price Adjustments).
-        List<Product> products = productRepository.findAllFiltered(companyId, term, null, null, true, PageRequest.of(0, 500)).getContent();
+        // Was capped at 50, then 500 — POS loads this once and filters/searches client-side as the
+        // cashier types (pos-page.component.ts), so any catalog bigger than the page size silently
+        // lost products past it (findable only by an exact barcode scan, a separate query). A real
+        // catalog import (Excel) can trivially exceed a few hundred SKUs, so this now fetches the
+        // whole active set unpaged instead of guessing a new fixed ceiling.
+        List<Product> products = productRepository.findAllFiltered(companyId, term, null, null, true, Pageable.unpaged()).getContent();
         return products.stream().map(this::toCatalogItemDto).toList();
     }
 
@@ -204,6 +204,7 @@ public class SalesService {
                 .categoryName(p.getCategory() != null ? p.getCategory().getName() : null)
                 .brandId(p.getBrand() != null ? p.getBrand().getId() : null)
                 .brandName(p.getBrand() != null ? p.getBrand().getName() : "—")
+                .unitId(p.getUnitOfMeasure() != null ? p.getUnitOfMeasure().getId() : null)
                 .unitName(p.getUnitOfMeasure() != null ? p.getUnitOfMeasure().getName() : "—")
                 .imageUrl(p.getImageUrl())
                 .stockByBranch(stockByBranch)
@@ -613,7 +614,9 @@ public class SalesService {
         invoice.setSubtotal(subtotal);
         invoice.setDiscountAmount(discountTotal);
         invoice.setTaxAmount(taxTotal);
-        BigDecimal grandTotal = subtotal.add(taxTotal).subtract(discountTotal);
+        BigDecimal roundingAdjustment = request.getRoundingAdjustment() != null ? request.getRoundingAdjustment() : BigDecimal.ZERO;
+        invoice.setRoundingAdjustment(roundingAdjustment);
+        BigDecimal grandTotal = subtotal.add(taxTotal).subtract(discountTotal).add(roundingAdjustment);
         invoice.setTotalAmount(grandTotal.compareTo(BigDecimal.ZERO) > 0 ? grandTotal : BigDecimal.ZERO);
 
         // Add Payments
@@ -989,6 +992,7 @@ public class SalesService {
                 .number(inv.getNumber())
                 .subtotal(inv.getSubtotal())
                 .discountAmount(inv.getDiscountAmount())
+                .roundingAdjustment(inv.getRoundingAdjustment())
                 .taxAmount(inv.getTaxAmount())
                 .totalAmount(total)
                 .total(total)
