@@ -94,9 +94,33 @@ public class InventoryService {
 
     @Transactional(readOnly = true)
     public List<StockLevelDto> getStockLevelsByWarehouse(Long warehouseId) {
-        requireOwnedWarehouse(warehouseId);
-        return stockLevelRepository.findByWarehouseId(warehouseId).stream()
-                .map(this::toStockLevelDto)
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        Warehouse warehouse = warehouseRepository.findByIdAndBranchCompanyIdAndDeletedAtIsNull(warehouseId, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Warehouse", warehouseId));
+
+        Map<Long, StockLevel> stockByProductId = new HashMap<>();
+        for (StockLevel s : stockLevelRepository.findByWarehouseId(warehouseId)) {
+            stockByProductId.put(s.getProduct().getId(), s);
+        }
+
+        // Every active product in the company shows up here, even at zero — a
+        // StockLevel row only exists once something (an import, a receipt, an
+        // adjustment) actually touched that product+warehouse pair; without this,
+        // a never-stocked product silently never appeared in the warehouse list.
+        return productRepository.findByCompanyIdAndIsActiveTrueAndDeletedAtIsNull(companyId).stream()
+                .map(product -> {
+                    StockLevel stockLevel = stockByProductId.get(product.getId());
+                    if (stockLevel == null) {
+                        stockLevel = StockLevel.builder()
+                                .warehouse(warehouse)
+                                .product(product)
+                                .quantityAvailable(BigDecimal.ZERO)
+                                .quantityReserved(BigDecimal.ZERO)
+                                .quantityInTransit(BigDecimal.ZERO)
+                                .build();
+                    }
+                    return toStockLevelDto(stockLevel);
+                })
                 .toList();
     }
 

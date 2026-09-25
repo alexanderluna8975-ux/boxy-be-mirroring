@@ -33,6 +33,8 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             Pageable pageable);
 
     List<Product> findTop10ByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long companyId);
+    List<Product> findByCompanyIdAndIsActiveTrueAndDeletedAtIsNull(Long companyId);
+    long countByCompanyIdAndIsActiveTrueAndDeletedAtIsNull(Long companyId);
 
     long countByCategoryIdAndDeletedAtIsNull(Long categoryId);
     long countByBrandIdAndDeletedAtIsNull(Long brandId);

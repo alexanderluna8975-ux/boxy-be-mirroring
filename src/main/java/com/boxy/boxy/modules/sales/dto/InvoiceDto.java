@@ -28,6 +28,7 @@ public class InvoiceDto {
     private String number;
     private BigDecimal subtotal;
     private BigDecimal discountAmount;
+    private BigDecimal roundingAdjustment;
     private BigDecimal taxAmount;
     private BigDecimal totalAmount;
     private BigDecimal total;
