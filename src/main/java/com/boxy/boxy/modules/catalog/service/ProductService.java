@@ -53,9 +53,30 @@ public class ProductService {
     private final ProductCostHistoryRepository productCostHistoryRepository;
 
     @Transactional(readOnly = true)
-    public Page<ProductDto> getProducts(String search, Long categoryId, Long brandId, Boolean isActive, Pageable pageable) {
+    public Page<ProductDto> getProducts(
+            String search,
+            List<Long> categoryIds,
+            List<Long> brandIds,
+            Boolean isActive,
+            List<Long> warehouseIds,
+            List<String> stockStatuses,
+            Pageable pageable) {
         Long companyId = SecurityUtils.getCurrentCompanyId();
-        return productRepository.findAllFiltered(companyId, search, categoryId, brandId, isActive, pageable)
+
+        boolean stockStatusFilterActive = stockStatuses != null && !stockStatuses.isEmpty();
+        boolean matchInStock = stockStatusFilterActive && stockStatuses.contains("in-stock");
+        boolean matchLowStock = stockStatusFilterActive && stockStatuses.contains("low-stock");
+        boolean matchOutOfStock = stockStatusFilterActive && stockStatuses.contains("out-of-stock");
+        boolean matchInTransit = stockStatusFilterActive && stockStatuses.contains("in-transit");
+
+        return productRepository.findAllFiltered(
+                companyId, search,
+                (categoryIds == null || categoryIds.isEmpty()) ? null : categoryIds,
+                (brandIds == null || brandIds.isEmpty()) ? null : brandIds,
+                isActive,
+                (warehouseIds == null || warehouseIds.isEmpty()) ? null : warehouseIds,
+                stockStatusFilterActive, matchInStock, matchLowStock, matchOutOfStock, matchInTransit,
+                pageable)
                 .map(this::toDto);
     }
 

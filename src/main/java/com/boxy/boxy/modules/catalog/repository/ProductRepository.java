@@ -21,15 +21,30 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     @Query("SELECT p FROM Product p WHERE p.company.id = :companyId AND p.deletedAt IS NULL AND " +
            "(:search IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')) OR p.barcode LIKE CONCAT('%', :search, '%')) AND " +
-           "(:categoryId IS NULL OR p.category.id = :categoryId) AND " +
-           "(:brandId IS NULL OR p.brand.id = :brandId) AND " +
-           "(:isActive IS NULL OR p.isActive = :isActive)")
+           "(:categoryIds IS NULL OR p.category.id IN :categoryIds) AND " +
+           "(:brandIds IS NULL OR p.brand.id IN :brandIds) AND " +
+           "(:isActive IS NULL OR p.isActive = :isActive) AND " +
+           "(:warehouseIds IS NULL OR EXISTS (" +
+           "  SELECT 1 FROM StockLevel wsl WHERE wsl.product = p AND wsl.warehouse.id IN :warehouseIds AND wsl.quantityAvailable > 0" +
+           ")) AND " +
+           "(:stockStatusFilterActive = false OR (" +
+           "  (:matchInStock = true AND (SELECT COALESCE(SUM(s1.quantityAvailable), 0) FROM StockLevel s1 WHERE s1.product = p) > p.minStockAlert) OR " +
+           "  (:matchLowStock = true AND (SELECT COALESCE(SUM(s2.quantityAvailable), 0) FROM StockLevel s2 WHERE s2.product = p) > 0 AND (SELECT COALESCE(SUM(s2.quantityAvailable), 0) FROM StockLevel s2 WHERE s2.product = p) <= p.minStockAlert) OR " +
+           "  (:matchOutOfStock = true AND (SELECT COALESCE(SUM(s3.quantityAvailable), 0) FROM StockLevel s3 WHERE s3.product = p) <= 0) OR " +
+           "  (:matchInTransit = true AND (SELECT COALESCE(SUM(s4.quantityInTransit), 0) FROM StockLevel s4 WHERE s4.product = p) > 0)" +
+           "))")
     Page<Product> findAllFiltered(
             @Param("companyId") Long companyId,
             @Param("search") String search,
-            @Param("categoryId") Long categoryId,
-            @Param("brandId") Long brandId,
+            @Param("categoryIds") List<Long> categoryIds,
+            @Param("brandIds") List<Long> brandIds,
             @Param("isActive") Boolean isActive,
+            @Param("warehouseIds") List<Long> warehouseIds,
+            @Param("stockStatusFilterActive") boolean stockStatusFilterActive,
+            @Param("matchInStock") boolean matchInStock,
+            @Param("matchLowStock") boolean matchLowStock,
+            @Param("matchOutOfStock") boolean matchOutOfStock,
+            @Param("matchInTransit") boolean matchInTransit,
             Pageable pageable);
 
     List<Product> findTop10ByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long companyId);

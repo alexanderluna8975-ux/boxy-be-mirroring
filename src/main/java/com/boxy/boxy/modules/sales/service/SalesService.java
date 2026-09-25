@@ -165,7 +165,8 @@ public class SalesService {
         // lost products past it (findable only by an exact barcode scan, a separate query). A real
         // catalog import (Excel) can trivially exceed a few hundred SKUs, so this now fetches the
         // whole active set unpaged instead of guessing a new fixed ceiling.
-        List<Product> products = productRepository.findAllFiltered(companyId, term, null, null, true, Pageable.unpaged()).getContent();
+        List<Product> products = productRepository.findAllFiltered(
+                companyId, term, null, null, true, null, false, false, false, false, false, Pageable.unpaged()).getContent();
         return products.stream().map(this::toCatalogItemDto).toList();
     }
 

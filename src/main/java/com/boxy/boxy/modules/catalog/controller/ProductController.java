@@ -36,14 +36,20 @@ public class ProductController {
             @RequestParam(required = false) Integer pageSize,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false, name = "filter.categoryId") Long filterCategoryId,
+            @RequestParam(required = false, name = "filter.categoryId") String filterCategoryIds,
             @RequestParam(required = false) Long brandId,
-            @RequestParam(required = false, name = "filter.brandId") Long filterBrandId,
+            @RequestParam(required = false, name = "filter.brandId") String filterBrandIds,
+            @RequestParam(required = false, name = "filter.warehouseId") String filterWarehouseIds,
+            @RequestParam(required = false, name = "filter.stockStatus") String filterStockStatuses,
             @RequestParam(required = false, name = "filter.status") String filterStatus,
             @RequestParam(required = false) Boolean isActive) {
         int effectiveLimit = pageSize != null ? pageSize : (limit != null ? limit : 20);
-        Long effectiveCategoryId = categoryId != null ? categoryId : filterCategoryId;
-        Long effectiveBrandId = brandId != null ? brandId : filterBrandId;
+
+        List<Long> categoryIds = mergeIdFilter(categoryId, filterCategoryIds);
+        List<Long> brandIds = mergeIdFilter(brandId, filterBrandIds);
+        List<Long> warehouseIds = parseLongCsv(filterWarehouseIds);
+        List<String> stockStatuses = parseCsv(filterStockStatuses);
+
         Boolean effectiveIsActive = isActive;
         if (effectiveIsActive == null && filterStatus != null && !filterStatus.isBlank()) {
             if ("active".equalsIgnoreCase(filterStatus)) {
@@ -54,10 +60,47 @@ public class ProductController {
         }
 
         Page<ProductDto> paged = productService.getProducts(
-                search, effectiveCategoryId, effectiveBrandId, effectiveIsActive,
+                search, categoryIds, brandIds, effectiveIsActive, warehouseIds, stockStatuses,
                 PageRequest.of(page - 1, effectiveLimit, Sort.by("id").ascending()));
         PageMeta meta = PageMeta.of(page, effectiveLimit, paged.getTotalElements());
         return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), meta));
+    }
+
+    /** Merges the legacy single-value query param with the comma-separated `filter.*` one. */
+    private List<Long> mergeIdFilter(Long singleValue, String csvValue) {
+        List<Long> ids = new java.util.ArrayList<>(parseLongCsv(csvValue));
+        if (singleValue != null && !ids.contains(singleValue)) {
+            ids.add(singleValue);
+        }
+        return ids;
+    }
+
+    private List<Long> parseLongCsv(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        List<Long> ids = new java.util.ArrayList<>();
+        for (String part : csv.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                ids.add(Long.valueOf(trimmed));
+            }
+        }
+        return ids;
+    }
+
+    private List<String> parseCsv(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        List<String> values = new java.util.ArrayList<>();
+        for (String part : csv.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                values.add(trimmed);
+            }
+        }
+        return values;
     }
 
     @GetMapping("/products/{id}")
