@@ -50,6 +50,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -164,13 +165,17 @@ class SalesServiceTest {
      */
     @Test
     void searchCatalogRequestsTheWholeCatalogUnpaged() {
-        when(productRepository.findAllFiltered(any(), any(), any(), any(), any(), any()))
+        when(productRepository.findAllFiltered(
+                any(), any(), any(), any(), any(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
                 .thenReturn(new PageImpl<>(List.of()));
 
         salesService.searchCatalog("");
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(productRepository).findAllFiltered(any(), any(), any(), any(), any(), pageableCaptor.capture());
+        verify(productRepository).findAllFiltered(
+                any(), any(), any(), any(), any(), any(),
+                anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().isPaged()).isFalse();
     }
 
