@@ -28,6 +28,9 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
     @Query("SELECT s FROM StockLevel s WHERE s.warehouse.branch.id = :branchId AND s.quantityAvailable <= s.product.minStockAlert")
     List<StockLevel> findLowStockByBranch(@Param("branchId") Long branchId);
 
+    @Query("SELECT COUNT(s) FROM StockLevel s WHERE s.warehouse.branch.company.id = :companyId")
+    long countByCompanyId(@Param("companyId") Long companyId);
+
     @Query("SELECT COALESCE(SUM(s.quantityAvailable), 0) FROM StockLevel s WHERE s.product.id = :productId")
     BigDecimal getTotalAvailableStockByProductId(@Param("productId") Long productId);
 

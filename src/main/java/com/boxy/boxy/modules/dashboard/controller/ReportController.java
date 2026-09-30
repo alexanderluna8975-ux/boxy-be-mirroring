@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,6 +18,9 @@ import java.util.Map;
 @RequestMapping("/api/v1/reports")
 @RequiredArgsConstructor
 @Tag(name = "Reports & Business Intelligence", description = "Endpoints for detailed reporting and analytics across sales, inventory, and finance")
+// Every report in this controller needs the same read-only permission — one class-level
+// check instead of repeating it on all 23 endpoints (all of them GET, all reporting data).
+@PreAuthorize("hasAuthority('reports:view') or hasAuthority('ROLE_SUPER_ADMIN')")
 public class ReportController {
 
     private final ReportService reportService;

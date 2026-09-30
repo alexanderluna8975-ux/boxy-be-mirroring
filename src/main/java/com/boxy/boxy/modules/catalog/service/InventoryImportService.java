@@ -8,6 +8,7 @@ import com.boxy.boxy.modules.administration.entity.Warehouse;
 import com.boxy.boxy.modules.administration.repository.CompanyRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.administration.repository.WarehouseRepository;
+import com.boxy.boxy.modules.administration.service.AuditLogService;
 import com.boxy.boxy.modules.catalog.dto.ImportResultDto;
 import com.boxy.boxy.modules.catalog.entity.Brand;
 import com.boxy.boxy.modules.catalog.entity.Category;
@@ -50,34 +51,59 @@ public class InventoryImportService {
     private final StockMovementRepository stockMovementRepository;
     private final CompanyRepository companyRepository;
     private final UserRepository userRepository;
+    private final AuditLogService auditLogService;
+
+    /** Independent of `spring.servlet.multipart.max-file-size` (50MB, shared by every multipart
+     *  endpoint) — a catalog import specifically has no legitimate reason to be this large. */
+    private static final long MAX_IMPORT_FILE_SIZE_BYTES = 10L * 1024 * 1024;
+    /** Caps how many data rows a single import processes — an unbounded file ties up the request
+     *  (and the DB transaction it all runs in) for however long a caller cares to make it. */
+    private static final int MAX_IMPORT_ROWS = 10_000;
+
+    private static final byte[] ZIP_MAGIC = {0x50, 0x4B, 0x03, 0x04}; // .xlsx (a zip container)
+    private static final byte[] OLE2_MAGIC = {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0}; // legacy .xls
 
     @Transactional
     public ImportResultDto importFile(MultipartFile file, Long requestedWarehouseId) {
         String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "import";
         log.info("Starting import of file: {}", originalFilename);
 
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        if (file.isEmpty()) {
+            throw new BusinessException("FILE_EMPTY", "El archivo está vacío");
+        }
+        if (file.getSize() > MAX_IMPORT_FILE_SIZE_BYTES) {
+            throw new BusinessException("FILE_TOO_LARGE", "El archivo excede el tamaño máximo permitido (10MB).");
+        }
+
+        boolean isCsv = originalFilename.toLowerCase().endsWith(".csv");
+        if (!isCsv) {
+            verifyExcelMagicBytes(file);
+        }
+
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new BusinessException("COMPANY_NOT_FOUND", "Company not found for id: " + companyId));
 
-        Long currentUserId = SecurityUtils.getCurrentUserId();
+        Long currentUserId = SecurityUtils.requireCurrentUserId();
         User currentUser = userRepository.findById(currentUserId).orElse(null);
 
         // Parse rows from file (either Excel or CSV)
         List<List<String>> rawRows;
         try (InputStream is = file.getInputStream()) {
-            if (originalFilename.toLowerCase().endsWith(".csv")) {
-                rawRows = parseCsv(is);
-            } else {
-                rawRows = parseExcel(is);
-            }
+            rawRows = isCsv ? parseCsv(is) : parseExcel(is);
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to parse file: {}", originalFilename, e);
-            throw new BusinessException("FILE_READ_ERROR", "Error al leer el archivo: " + e.getMessage());
+            throw new BusinessException("FILE_READ_ERROR", "No se pudo leer el archivo. Verifica que el formato sea válido.");
         }
 
         if (rawRows.isEmpty()) {
             throw new BusinessException("FILE_EMPTY", "El archivo está vacío");
+        }
+        if (rawRows.size() > MAX_IMPORT_ROWS) {
+            throw new BusinessException("FILE_TOO_MANY_ROWS",
+                    "El archivo tiene más de " + MAX_IMPORT_ROWS + " filas. Divídelo en archivos más pequeños.");
         }
 
         // Find header row and column mapping
@@ -118,7 +144,9 @@ public class InventoryImportService {
 
         Warehouse defaultWarehouse = null;
         if (requestedWarehouseId != null) {
-            defaultWarehouse = warehouseRepository.findByIdAndDeletedAtIsNull(requestedWarehouseId).orElse(null);
+            defaultWarehouse = warehouseRepository.findByIdAndDeletedAtIsNull(requestedWarehouseId)
+                    .filter(w -> w.getBranch().getCompany().getId().equals(companyId))
+                    .orElse(null);
         }
         if (defaultWarehouse == null) {
             List<Warehouse> warehouses = warehouseRepository.findByBranchCompanyIdAndDeletedAtIsNull(companyId);
@@ -334,6 +362,8 @@ public class InventoryImportService {
         String summary = String.format("Importación exitosa de %s: %d productos creados, %d actualizados, %d procesados en total.",
                 fileType, createdCount, updatedCount, processedRows);
 
+        auditLogService.record("Importación de productos", "Producto", null, originalFilename, null, summary);
+
         return ImportResultDto.builder()
                 .filename(originalFilename)
                 .fileType(fileType)
@@ -409,6 +439,33 @@ public class InventoryImportService {
         } catch (Exception e) {
             return BigDecimal.ZERO;
         }
+    }
+
+    /** The filename extension is caller-supplied and trivially spoofable — this confirms an
+     *  ".xlsx"/".xls" upload is actually the binary container format {@code WorkbookFactory}
+     *  expects, instead of trusting the extension alone before handing it to POI. */
+    private void verifyExcelMagicBytes(MultipartFile file) {
+        byte[] header = new byte[4];
+        try (InputStream is = file.getInputStream()) {
+            int read = is.readNBytes(header, 0, 4);
+            if (read < 4 || !(startsWith(header, ZIP_MAGIC) || startsWith(header, OLE2_MAGIC))) {
+                throw new BusinessException("INVALID_FILE_TYPE",
+                        "El archivo no parece ser un Excel válido (.xlsx o .xls).");
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException("INVALID_FILE_TYPE", "No se pudo verificar el tipo de archivo.");
+        }
+    }
+
+    private boolean startsWith(byte[] data, byte[] prefix) {
+        for (int i = 0; i < prefix.length; i++) {
+            if (data[i] != prefix[i]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private List<List<String>> parseExcel(InputStream is) throws Exception {

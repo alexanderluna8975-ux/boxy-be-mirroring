@@ -77,6 +77,7 @@ public class CustomUserDetailsService implements UserDetailsService {
                 user.getFullName(),
                 defaultBranchId,
                 user.getStatus(),
+                user.getLockedUntil(),
                 rolesAndPermissions
         );
     }

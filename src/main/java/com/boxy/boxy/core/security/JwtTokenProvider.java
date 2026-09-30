@@ -12,21 +12,31 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
 
+/**
+ * Issues and validates the short-lived JWT access token. The refresh token is a separate,
+ * opaque, DB-backed value (see {@code RefreshTokenService}) — not a JWT — so there is nothing
+ * here to generate or validate for it.
+ */
 @Slf4j
 @Component
 public class JwtTokenProvider {
 
     private final SecretKey key;
     private final long jwtExpirationMs;
-    private final long refreshExpirationMs;
+
+    private static final int MIN_SECRET_BYTES = 64;
 
     public JwtTokenProvider(
             @Value("${app.jwt.secret}") String secret,
-            @Value("${app.jwt.expiration-ms}") long jwtExpirationMs,
-            @Value("${app.jwt.refresh-expiration-ms}") long refreshExpirationMs) {
-        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+            @Value("${app.jwt.expiration-ms}") long jwtExpirationMs) {
+        byte[] secretBytes = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);
+        if (secretBytes.length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "app.jwt.secret (JWT_SECRET) must be set to a random value of at least "
+                            + MIN_SECRET_BYTES + " bytes. Refusing to start with a missing or weak secret.");
+        }
+        this.key = Keys.hmacShaKeyFor(secretBytes);
         this.jwtExpirationMs = jwtExpirationMs;
-        this.refreshExpirationMs = refreshExpirationMs;
     }
 
     public String generateToken(UserPrincipal userPrincipal) {
@@ -44,18 +54,6 @@ public class JwtTokenProvider {
                 .claim("companyId", userPrincipal.getCompanyId())
                 .claim("branchId", userPrincipal.getActiveBranchId())
                 .claim("roles", authorities)
-                .issuedAt(now)
-                .expiration(expiryDate)
-                .signWith(key)
-                .compact();
-    }
-
-    public String generateRefreshToken(UserPrincipal userPrincipal) {
-        Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + refreshExpirationMs);
-
-        return Jwts.builder()
-                .subject(String.valueOf(userPrincipal.getId()))
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .signWith(key)

@@ -11,4 +11,5 @@ import java.util.Optional;
 public interface CashierSessionRepository extends JpaRepository<CashierSession, Long> {
     Optional<CashierSession> findByUserIdAndBranchIdAndStatus(Long userId, Long branchId, String status);
     List<CashierSession> findByBranchIdOrderByOpenedAtDesc(Long branchId);
+    Optional<CashierSession> findByIdAndBranchCompanyId(Long id, Long companyId);
 }

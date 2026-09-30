@@ -16,6 +16,7 @@ import com.boxy.boxy.modules.administration.repository.BranchRepository;
 import com.boxy.boxy.modules.administration.repository.CompanyRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.administration.repository.WarehouseRepository;
+import com.boxy.boxy.modules.administration.service.AuditLogService;
 import com.boxy.boxy.modules.catalog.entity.Product;
 import com.boxy.boxy.modules.catalog.entity.ProductCostHistory;
 import com.boxy.boxy.modules.catalog.repository.ProductCostHistoryRepository;
@@ -64,6 +65,7 @@ public class PurchasingService {
     private final DocumentSequenceService documentSequenceService;
     private final PdfDocumentService pdfDocumentService;
     private final ProductCostHistoryRepository productCostHistoryRepository;
+    private final AuditLogService auditLogService;
 
     /** For `LocalDate` fields (issue/expected-delivery date) — no time-of-day to show. */
     private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy");
@@ -74,7 +76,7 @@ public class PurchasingService {
 
     @Transactional(readOnly = true)
     public List<SupplierDto> getAllSuppliers() {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         return supplierRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(this::toSupplierDto)
                 .toList();
@@ -82,7 +84,7 @@ public class PurchasingService {
 
     @Transactional(readOnly = true)
     public Page<SupplierDto> getSuppliersPaged(String search, String status, Pageable pageable) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Boolean isActive = "active".equalsIgnoreCase(status) ? Boolean.TRUE
                 : "inactive".equalsIgnoreCase(status) ? Boolean.FALSE
                 : null;
@@ -93,14 +95,12 @@ public class PurchasingService {
 
     @Transactional(readOnly = true)
     public SupplierDto getSupplierById(Long id) {
-        Supplier s = supplierRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Supplier", id));
-        return toSupplierDto(s);
+        return toSupplierDto(findOwnedSupplier(id));
     }
 
     @Transactional
     public SupplierDto createSupplier(CreateSupplierRequest request) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
@@ -121,8 +121,7 @@ public class PurchasingService {
 
     @Transactional
     public SupplierDto updateSupplier(Long id, CreateSupplierRequest request) {
-        Supplier s = supplierRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Supplier", id));
+        Supplier s = findOwnedSupplier(id);
 
         if (request.getName() != null) s.setName(request.getName().trim());
         if (request.getTaxId() != null) s.setTaxId(normalizeTaxId(request.getTaxId()));
@@ -137,15 +136,34 @@ public class PurchasingService {
 
     @Transactional
     public SupplierDto deactivateSupplier(Long id) {
-        Supplier s = supplierRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Supplier", id));
+        Supplier s = findOwnedSupplier(id);
         s.setIsActive(!Boolean.TRUE.equals(s.getIsActive()));
         return toSupplierDto(supplierRepository.save(s));
     }
 
+    /** 404s (not 403) on a supplier belonging to another company — same treatment as "doesn't exist". */
+    private Supplier findOwnedSupplier(Long id) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return supplierRepository.findByIdAndCompanyIdAndDeletedAtIsNull(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Supplier", id));
+    }
+
+    /** 404s (not 403) on a product belonging to another company — same treatment as "doesn't exist". */
+    private Product findOwnedProduct(Long id, Long companyId) {
+        return productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+    }
+
+    /** 404s (not 403) on a goods receipt whose purchase order belongs to another company. */
+    private GoodsReceipt findOwnedGoodsReceipt(Long id) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return goodsReceiptRepository.findByIdAndPurchaseOrderCompanyId(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("GoodsReceipt", id));
+    }
+
     @Transactional(readOnly = true)
     public boolean checkSupplierUnique(String field, String value, Long excludeId) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Optional<Supplier> existing = supplierRepository.findByCompanyIdAndTaxIdAndDeletedAtIsNull(companyId, value);
         if (existing.isEmpty()) {
             return true;
@@ -176,7 +194,7 @@ public class PurchasingService {
     @Transactional(readOnly = true)
     public Page<PurchaseOrderDto> getPurchaseOrders(Long branchId, String status, Long supplierId, String search,
                                                      String dateFrom, String dateTo, Pageable pageable) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         List<String> statuses = mapFrontendStatus(status);
         boolean ignoreStatus = statuses == null;
         String searchTerm = (search == null || search.isBlank()) ? null : search.trim();
@@ -201,15 +219,12 @@ public class PurchasingService {
 
     @Transactional(readOnly = true)
     public PurchaseOrderDto getPurchaseOrderById(Long id) {
-        PurchaseOrder po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
-        return toPoDto(po);
+        return toPoDto(findPoOrThrow(id));
     }
 
     @Transactional(readOnly = true)
     public byte[] generatePurchaseOrderPdf(Long id) {
-        PurchaseOrder po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
+        PurchaseOrder po = findPoOrThrow(id);
         Company company = po.getCompany();
         Supplier supplier = po.getSupplier();
 
@@ -265,19 +280,19 @@ public class PurchasingService {
 
     @Transactional
     public PurchaseOrderDto createPurchaseOrder(CreatePurchaseOrderRequest request) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
-        Long branchId = request.getBranchId() != null ? request.getBranchId() : 1L;
+        Long branchId = request.getBranchId() != null ? request.getBranchId() : SecurityUtils.requireCurrentBranchId();
         Branch branch = branchRepository.findByIdAndDeletedAtIsNull(branchId)
-                .orElseGet(() -> branchRepository.findAll().stream().findFirst().orElseThrow());
+                .filter(b -> b.getCompany().getId().equals(companyId))
+                .orElseThrow(() -> new ResourceNotFoundException("Branch", branchId));
 
-        Supplier supplier = supplierRepository.findByIdAndDeletedAtIsNull(request.getSupplierId())
-                .orElseGet(() -> supplierRepository.findAll().stream().findFirst().orElseThrow());
+        Supplier supplier = findOwnedSupplier(request.getSupplierId());
 
-        User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.getCurrentUserId())
-                .orElseGet(() -> userRepository.findAll().stream().findFirst().orElseThrow());
+        User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.requireCurrentUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("User", SecurityUtils.requireCurrentUserId()));
 
         String orderNumber = documentSequenceService.nextFolio(companyId, DocumentType.PURCHASE_ORDER);
 
@@ -298,8 +313,7 @@ public class PurchasingService {
 
         if (request.getItems() != null) {
             for (var itemReq : request.getItems()) {
-                Product product = productRepository.findByIdAndDeletedAtIsNull(itemReq.getProductId())
-                        .orElseThrow(() -> new ResourceNotFoundException("Product", itemReq.getProductId()));
+                Product product = findOwnedProduct(itemReq.getProductId(), companyId);
 
                 BigDecimal unitCost = itemReq.getUnitCost() != null ? itemReq.getUnitCost()
                         : (product.getCostPrice() != null ? product.getCostPrice() : BigDecimal.valueOf(25.0));
@@ -336,8 +350,7 @@ public class PurchasingService {
 
     @Transactional
     public PurchaseOrderDto updatePurchaseOrder(Long id, CreatePurchaseOrderRequest request) {
-        PurchaseOrder po = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
+        PurchaseOrder po = findPoOrThrow(id);
         if (request.getNotes() != null) po.setNotes(request.getNotes());
         if (request.getExpectedDeliveryDate() != null) po.setExpectedDeliveryDate(request.getExpectedDeliveryDate());
         return toPoDto(purchaseOrderRepository.save(po));
@@ -393,8 +406,10 @@ public class PurchasingService {
 
     private static final Set<String> PO_TERMINAL_STATUSES = Set.of("RECEIVED", "COMPLETED", "CANCELLED");
 
+    /** 404s (not 403) on a purchase order belonging to another company — same treatment as "doesn't exist". */
     private PurchaseOrder findPoOrThrow(Long id) {
-        return purchaseOrderRepository.findById(id)
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return purchaseOrderRepository.findByIdAndCompanyId(id, companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", id));
     }
 
@@ -427,7 +442,10 @@ public class PurchasingService {
         PurchaseOrder po = findPoOrThrow(id);
         requireStatus(po, "aprobar", "SUBMITTED");
         po.setStatus("ORDERED");
-        return toPoDto(purchaseOrderRepository.save(po));
+        PurchaseOrder saved = purchaseOrderRepository.save(po);
+        auditLogService.record("Orden de compra aprobada", "Orden de Compra", String.valueOf(saved.getId()),
+                saved.getOrderNumber(), null, null);
+        return toPoDto(saved);
     }
 
     @Transactional
@@ -436,7 +454,10 @@ public class PurchasingService {
         requireStatus(po, "rechazar", "SUBMITTED");
         po.setStatus("REJECTED");
         po.setNotes((po.getNotes() != null ? po.getNotes() + " | Motivo rechazo: " : "Motivo rechazo: ") + reason);
-        return toPoDto(purchaseOrderRepository.save(po));
+        PurchaseOrder saved = purchaseOrderRepository.save(po);
+        auditLogService.record("Orden de compra rechazada", "Orden de Compra", String.valueOf(saved.getId()),
+                saved.getOrderNumber(), null, reason);
+        return toPoDto(saved);
     }
 
     @Transactional
@@ -466,7 +487,7 @@ public class PurchasingService {
 
     @Transactional(readOnly = true)
     public List<PurchaseOrderDto> getPendingPurchaseOrders() {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         return purchaseOrderRepository.findByCompanyId(companyId).stream()
                 .filter(po -> RECEIVABLE_PO_STATUSES.contains(po.getStatus() == null ? "" : po.getStatus().toUpperCase()))
                 .map(this::toPoDto)
@@ -476,29 +497,20 @@ public class PurchasingService {
     // --- GOODS RECEIPTS / RECEIVING ---
 
     @Transactional(readOnly = true)
-    public List<GoodsReceiptDto> getAllGoodsReceipts() {
-        return goodsReceiptRepository.findAll().stream()
-                .map(this::toReceiptDto)
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
     public Page<GoodsReceiptDto> getGoodsReceiptsPaged(Pageable pageable) {
-        return goodsReceiptRepository.findAllByOrderByCreatedAtDesc(pageable)
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return goodsReceiptRepository.findByPurchaseOrderCompanyIdOrderByCreatedAtDesc(companyId, pageable)
                 .map(this::toReceiptDto);
     }
 
     @Transactional(readOnly = true)
     public GoodsReceiptDto getGoodsReceiptById(Long id) {
-        GoodsReceipt r = goodsReceiptRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("GoodsReceipt", id));
-        return toReceiptDto(r);
+        return toReceiptDto(findOwnedGoodsReceipt(id));
     }
 
     @Transactional(readOnly = true)
     public byte[] generateGoodsReceiptPdf(Long id) {
-        GoodsReceipt receipt = goodsReceiptRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("GoodsReceipt", id));
+        GoodsReceipt receipt = findOwnedGoodsReceipt(id);
         PurchaseOrder po = receipt.getPurchaseOrder();
         Company company = po != null ? po.getCompany() : null;
         Supplier supplier = po != null ? po.getSupplier() : null;
@@ -561,15 +573,19 @@ public class PurchasingService {
 
     @Transactional
     public GoodsReceiptDto receiveGoods(CreateGoodsReceiptRequest request) {
-        PurchaseOrder po = purchaseOrderRepository.findById(request.getPurchaseOrderId())
-                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", request.getPurchaseOrderId()));
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        PurchaseOrder po = findPoOrThrow(request.getPurchaseOrderId());
 
-        Long whId = request.getWarehouseId() != null ? request.getWarehouseId() : 1L;
+        if (request.getWarehouseId() == null) {
+            throw new BusinessException("WAREHOUSE_REQUIRED", "A warehouse must be specified to receive goods.");
+        }
+        Long whId = request.getWarehouseId();
         Warehouse warehouse = warehouseRepository.findByIdAndDeletedAtIsNull(whId)
-                .orElseGet(() -> warehouseRepository.findAll().stream().findFirst().orElseThrow());
+                .filter(w -> w.getBranch().getCompany().getId().equals(companyId))
+                .orElseThrow(() -> new ResourceNotFoundException("Warehouse", whId));
 
-        User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.getCurrentUserId())
-                .orElseGet(() -> userRepository.findAll().stream().findFirst().orElseThrow());
+        User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.requireCurrentUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("User", SecurityUtils.requireCurrentUserId()));
 
         GoodsReceipt receipt = GoodsReceipt.builder()
                 .purchaseOrder(po)
@@ -585,8 +601,7 @@ public class PurchasingService {
 
         if (request.getItems() != null) {
             for (var itemReq : request.getItems()) {
-                Product product = productRepository.findByIdAndDeletedAtIsNull(itemReq.getProductId())
-                        .orElseThrow(() -> new ResourceNotFoundException("Product", itemReq.getProductId()));
+                Product product = findOwnedProduct(itemReq.getProductId(), companyId);
 
                 BigDecimal qtyReceived = itemReq.getQuantityReceived() != null ? itemReq.getQuantityReceived() : BigDecimal.ZERO;
                 if (qtyReceived.compareTo(BigDecimal.ZERO) <= 0) {
@@ -687,6 +702,8 @@ public class PurchasingService {
             productCostHistoryRepository.saveAll(costHistoryEntries);
         }
 
+        auditLogService.record("Mercadería recibida", "Recepción", String.valueOf(saved.getId()),
+                saved.getReceiptNumber(), null, "PO: " + po.getOrderNumber());
         return toReceiptDto(saved);
     }
 

@@ -1,6 +1,7 @@
 package com.boxy.boxy.modules.sales.service;
 
 import com.boxy.boxy.core.exception.BusinessException;
+import com.boxy.boxy.core.security.UserPrincipal;
 import com.boxy.boxy.core.sequence.DocumentSequenceService;
 import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.modules.administration.entity.Branch;
@@ -10,6 +11,7 @@ import com.boxy.boxy.modules.administration.repository.BranchRepository;
 import com.boxy.boxy.modules.administration.repository.CompanyRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.administration.repository.WarehouseRepository;
+import com.boxy.boxy.modules.administration.service.AuditLogService;
 import com.boxy.boxy.modules.catalog.dto.ProductDto;
 import com.boxy.boxy.modules.catalog.entity.Brand;
 import com.boxy.boxy.modules.catalog.entity.Category;
@@ -32,6 +34,8 @@ import com.boxy.boxy.modules.sales.repository.InvoiceRepository;
 import com.boxy.boxy.modules.sales.repository.PaymentRepository;
 import com.boxy.boxy.modules.sales.repository.PriceAdjustmentRepository;
 import com.boxy.boxy.modules.sales.repository.SalesOrderRepository;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -41,6 +45,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -74,9 +80,25 @@ class SalesServiceTest {
     @Mock private PaymentRepository paymentRepository;
     @Mock private DocumentSequenceService documentSequenceService;
     @Mock private PdfDocumentService pdfDocumentService;
+    @Mock private AuditLogService auditLogService;
 
     @InjectMocks
     private SalesService salesService;
+
+    private static final Long COMPANY_ID = 1L;
+
+    @BeforeEach
+    void authenticateAsCompanyOne() {
+        UserPrincipal principal = UserPrincipal.create(
+                1L, COMPANY_ID, "cashier", "cashier@boxy.dev", "hash", "Cashier", 1L, "ACTIVE", List.of());
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     private void stubCommon() {
         Company company = Company.builder().id(1L).build();
@@ -99,7 +121,7 @@ class SalesServiceTest {
     void skipsProductsWithNoCostOnlyWhenBasedOnCost() {
         stubCommon();
         Product noCost = product(10L, "0", "50.00");
-        when(productRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(noCost));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(10L, COMPANY_ID)).thenReturn(Optional.of(noCost));
 
         CreatePriceAdjustmentRequest request = CreatePriceAdjustmentRequest.builder()
                 .tariff("increase").unit("percent").amount(new BigDecimal("10"))
@@ -115,7 +137,7 @@ class SalesServiceTest {
     void repricesFromSalePriceEvenWithoutCost() {
         stubCommon();
         Product noCost = product(11L, "0", "50.00");
-        when(productRepository.findByIdAndDeletedAtIsNull(11L)).thenReturn(Optional.of(noCost));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(11L, COMPANY_ID)).thenReturn(Optional.of(noCost));
 
         CreatePriceAdjustmentRequest request = CreatePriceAdjustmentRequest.builder()
                 .tariff("increase").unit("percent").amount(new BigDecimal("10"))
@@ -135,8 +157,8 @@ class SalesServiceTest {
         stubCommon();
         Product a = product(20L, "40.00", "50.00");
         Product b = product(21L, "40.00", "50.00");
-        when(productRepository.findByIdAndDeletedAtIsNull(20L)).thenReturn(Optional.of(a));
-        when(productRepository.findByIdAndDeletedAtIsNull(21L)).thenReturn(Optional.of(b));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(20L, COMPANY_ID)).thenReturn(Optional.of(a));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(21L, COMPANY_ID)).thenReturn(Optional.of(b));
 
         CreatePriceAdjustmentRequest request = CreatePriceAdjustmentRequest.builder()
                 .tariff("increase").unit("percent").amount(new BigDecimal("25"))
@@ -245,7 +267,7 @@ class SalesServiceTest {
     void createQuotationAppliesTicketLevelDiscountAmount() {
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
-        Branch branch = Branch.builder().id(1L).name("Sucursal Central").build();
+        Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
         when(branchRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(branch));
         User user = User.builder().id(1L).build();
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
@@ -253,7 +275,7 @@ class SalesServiceTest {
 
         Product product = Product.builder().id(40L).sku("SKU-40").name("Producto 40")
                 .sellingPrice(new BigDecimal("100.00")).build();
-        when(productRepository.findByIdAndDeletedAtIsNull(40L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(40L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(salesOrderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreateQuotationRequest request = CreateQuotationRequest.builder()
@@ -267,7 +289,7 @@ class SalesServiceTest {
                         .build()))
                 .build();
         Customer customer = Customer.builder().id(1L).name("Cliente de Prueba").build();
-        when(customerRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(customer));
 
         QuotationDto result = salesService.createQuotation(request);
 
@@ -290,7 +312,7 @@ class SalesServiceTest {
     void quotationLineTotalMatchesQuantityTimesUnitPriceMinusDiscount() {
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
-        Branch branch = Branch.builder().id(1L).name("Sucursal Central").build();
+        Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
         when(branchRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(branch));
         User user = User.builder().id(1L).build();
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
@@ -298,7 +320,7 @@ class SalesServiceTest {
 
         Product product = Product.builder().id(42L).sku("SKU-42").name("Producto 42")
                 .sellingPrice(new BigDecimal("50.00")).build();
-        when(productRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(42L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(salesOrderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreateQuotationRequest request = CreateQuotationRequest.builder()
@@ -312,7 +334,7 @@ class SalesServiceTest {
                         .build()))
                 .build();
         Customer customer = Customer.builder().id(1L).name("Cliente de Prueba").build();
-        when(customerRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(customer));
 
         QuotationDto result = salesService.createQuotation(request);
 
@@ -334,7 +356,7 @@ class SalesServiceTest {
     void createQuotationPersistsValidUntil() {
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
-        Branch branch = Branch.builder().id(1L).name("Sucursal Central").build();
+        Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
         when(branchRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(branch));
         User user = User.builder().id(1L).build();
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
@@ -342,7 +364,7 @@ class SalesServiceTest {
 
         Product product = Product.builder().id(43L).sku("SKU-43").name("Producto 43")
                 .sellingPrice(new BigDecimal("10.00")).build();
-        when(productRepository.findByIdAndDeletedAtIsNull(43L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(43L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(salesOrderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreateQuotationRequest request = CreateQuotationRequest.builder()
@@ -357,7 +379,7 @@ class SalesServiceTest {
                         .build()))
                 .build();
         Customer customer = Customer.builder().id(1L).name("Cliente de Prueba").build();
-        when(customerRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(customer));
 
         QuotationDto result = salesService.createQuotation(request);
 
@@ -372,7 +394,7 @@ class SalesServiceTest {
     void createQuotationFloorsTotalAtZeroWhenDiscountExceedsSubtotal() {
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
-        Branch branch = Branch.builder().id(1L).name("Sucursal Central").build();
+        Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
         when(branchRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(branch));
         User user = User.builder().id(1L).build();
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
@@ -380,7 +402,7 @@ class SalesServiceTest {
 
         Product product = Product.builder().id(41L).sku("SKU-41").name("Producto 41")
                 .sellingPrice(new BigDecimal("10.00")).build();
-        when(productRepository.findByIdAndDeletedAtIsNull(41L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(41L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(salesOrderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreateQuotationRequest request = CreateQuotationRequest.builder()
@@ -394,7 +416,7 @@ class SalesServiceTest {
                         .build()))
                 .build();
         Customer customer = Customer.builder().id(1L).name("Cliente de Prueba").build();
-        when(customerRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(customer));
 
         QuotationDto result = salesService.createQuotation(request);
 

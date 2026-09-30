@@ -93,7 +93,7 @@ public class UserController {
     @Operation(summary = "Update granular permission overrides for a user")
     public ResponseEntity<ApiResponse<UserDto>> updateUserPermissions(
             @PathVariable Long id,
-            @RequestBody UpdateUserPermissionsRequest request) {
+            @Valid @RequestBody UpdateUserPermissionsRequest request) {
         return ResponseEntity.ok(ApiResponse.ok(userService.updateUserPermissions(id, request), "User permissions updated successfully"));
     }
 
@@ -105,6 +105,7 @@ public class UserController {
     }
 
     @GetMapping("/check-unique")
+    @PreAuthorize("hasAuthority('users:view') or hasAuthority('users:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Check whether an email/username is available")
     public ResponseEntity<Map<String, Boolean>> checkUserUnique(
             @RequestParam String field,

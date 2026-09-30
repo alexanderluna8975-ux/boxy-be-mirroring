@@ -17,7 +17,7 @@ public class CreateUserRequest {
     private String email;
 
     @NotBlank(message = "Password is required")
-    @Size(min = 8, message = "Password must be at least 8 characters long")
+    @Size(min = 10, message = "Password must be at least 10 characters long")
     private String password;
 
     private String firstName;

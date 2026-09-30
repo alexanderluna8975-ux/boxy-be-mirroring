@@ -50,6 +50,13 @@ public class User {
     @Column(name = "permission_overrides", columnDefinition = "TEXT")
     private String permissionOverrides;
 
+    @Column(name = "failed_login_count", nullable = false)
+    @Builder.Default
+    private int failedLoginCount = 0;
+
+    @Column(name = "locked_until")
+    private Instant lockedUntil;
+
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<UserBranchRole> branchRoles = new ArrayList<>();

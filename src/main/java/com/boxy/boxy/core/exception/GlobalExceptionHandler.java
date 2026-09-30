@@ -11,6 +11,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -73,11 +74,14 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(error, HttpStatus.UNAUTHORIZED);
     }
 
-    @ExceptionHandler(DisabledException.class)
-    public ResponseEntity<ApiError> handleDisabledAccount(DisabledException ex, HttpServletRequest request) {
+    // Disabled and locked-out accounts return the exact same code/message/status as a plain bad
+    // password: distinguishing them would let a caller enumerate which accounts exist/are active
+    // just by watching for a different response.
+    @ExceptionHandler({DisabledException.class, LockedException.class})
+    public ResponseEntity<ApiError> handleDisabledOrLockedAccount(RuntimeException ex, HttpServletRequest request) {
         ApiError error = ApiError.builder()
-                .code("ACCOUNT_DISABLED")
-                .message("This account is deactivated.")
+                .code("INVALID_CREDENTIALS")
+                .message("Invalid username or password.")
                 .status(HttpStatus.UNAUTHORIZED.value())
                 .path(request.getRequestURI())
                 .timestamp(Instant.now())

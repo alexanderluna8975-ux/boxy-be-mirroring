@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -20,12 +21,14 @@ public class CompanyController {
     private final CompanyService companyService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('settings:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get active company profile, branding and business capabilities")
     public ResponseEntity<ApiResponse<CompanyProfileDto>> getCompanyProfile() {
         return ResponseEntity.ok(ApiResponse.ok(companyService.getCompanyProfile()));
     }
 
     @PutMapping
+    @PreAuthorize("hasAuthority('settings:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Update active company profile, branding and business capabilities")
     public ResponseEntity<ApiResponse<CompanyProfileDto>> updateCompanyProfile(
             @Valid @RequestBody UpdateCompanyProfileRequest request) {
