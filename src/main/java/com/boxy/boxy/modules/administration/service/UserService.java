@@ -2,6 +2,7 @@ package com.boxy.boxy.modules.administration.service;
 
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
+import com.boxy.boxy.core.security.PasswordPolicy;
 import com.boxy.boxy.core.security.SecurityUtils;
 import com.boxy.boxy.modules.administration.dto.CreateUserRequest;
 import com.boxy.boxy.modules.administration.dto.UpdateUserRequest;
@@ -19,6 +20,7 @@ import com.boxy.boxy.modules.administration.repository.RoleRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.administration.dto.UpdateUserPermissionsRequest;
 import com.boxy.boxy.modules.administration.dto.UserPermissionOverridesDto;
+import com.boxy.boxy.modules.auth.service.RefreshTokenService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +47,7 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
+    private final RefreshTokenService refreshTokenService;
 
     @Transactional(readOnly = true)
     public List<UserDto> getAllUsers() {
@@ -92,6 +95,7 @@ public class UserService {
         if (userRepository.findByEmailAndDeletedAtIsNull(request.getEmail()).isPresent()) {
             throw new BusinessException("EMAIL_EXISTS", "Email already in use.");
         }
+        PasswordPolicy.rejectIfMatchesUsername(request.getPassword(), username);
 
         User user = User.builder()
                 .company(company)
@@ -157,11 +161,14 @@ public class UserService {
     @Transactional
     public UserDto resetPassword(Long id, String newPassword) {
         User user = findOwnedUser(id);
+        PasswordPolicy.rejectIfMatchesUsername(newPassword, user.getUsername());
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         User saved = userRepository.save(user);
         // Never logs the password itself, before or after — only that a reset happened.
         auditLogService.record("Contraseña restablecida", "Usuario", String.valueOf(saved.getId()),
                 saved.getFullName(), null, null);
+        // A password reset should end every existing session immediately, not just future logins.
+        refreshTokenService.revokeAllForUser(saved.getId());
         return toDto(saved);
     }
 
@@ -174,6 +181,9 @@ public class UserService {
         User saved = userRepository.save(user);
         auditLogService.record("ACTIVE".equalsIgnoreCase(newStatus) ? "Usuario activado" : "Usuario desactivado",
                 "Usuario", String.valueOf(saved.getId()), saved.getFullName(), previousStatus, newStatus);
+        if ("INACTIVE".equalsIgnoreCase(newStatus)) {
+            refreshTokenService.revokeAllForUser(saved.getId());
+        }
         return toDto(saved);
     }
 

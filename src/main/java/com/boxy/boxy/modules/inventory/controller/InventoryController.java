@@ -146,7 +146,7 @@ public class InventoryController {
     @PreAuthorize("hasAuthority('transfers:approve') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Correct a single line's quantity, inline, before approval")
     public ResponseEntity<ApiResponse<StockTransferDto>> updateTransferLine(
-            @PathVariable Long id, @PathVariable Long productId, @RequestBody UpdateTransferLineRequest request) {
+            @PathVariable Long id, @PathVariable Long productId, @Valid @RequestBody UpdateTransferLineRequest request) {
         StockTransferDto updated = inventoryService.updateTransferLine(id, productId, request);
         return ResponseEntity.ok(ApiResponse.ok(updated, "Transfer line quantity updated"));
     }
@@ -179,7 +179,7 @@ public class InventoryController {
     @PreAuthorize("hasAuthority('transfers:receive') or hasAuthority('inventory:transfer') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Receive transferred items into destination warehouse, recording the actual received quantity per line")
     public ResponseEntity<ApiResponse<StockTransferDto>> receiveTransfer(
-            @PathVariable Long id, @RequestBody(required = false) ReceiveTransferRequest request) {
+            @PathVariable Long id, @Valid @RequestBody(required = false) ReceiveTransferRequest request) {
         StockTransferDto received = inventoryService.receiveTransfer(id, request);
         return ResponseEntity.ok(ApiResponse.ok(received, "Transfer received and stock added"));
     }

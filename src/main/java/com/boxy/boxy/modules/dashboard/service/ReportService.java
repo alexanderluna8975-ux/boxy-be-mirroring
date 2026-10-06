@@ -51,7 +51,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getSalesSummary() {
-        List<Invoice> invoices = invoiceRepository.findAll();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Invoice> invoices = invoiceRepository.findByCompanyId(companyId);
         BigDecimal totalRevenue = invoices.stream()
                 .map(Invoice::getTotalAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -79,7 +80,7 @@ public class ReportService {
                 )
         );
 
-        List<Product> topProds = productRepository.findAll().stream().limit(5).toList();
+        List<Product> topProds = productRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream().limit(5).toList();
         List<Map<String, Object>> topProdPoints = new ArrayList<>();
         for (Product p : topProds) {
             topProdPoints.add(Map.of("label", p.getName().length() > 18 ? p.getName().substring(0, 18) + "..." : p.getName(), "value", 120.0));
@@ -96,7 +97,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getSalesByProduct() {
-        List<Product> products = productRepository.findAll().stream().limit(20).toList();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Product> products = productRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream().limit(20).toList();
         List<Map<String, Object>> rows = new ArrayList<>();
         List<Map<String, Object>> chartPoints = new ArrayList<>();
 
@@ -128,8 +130,9 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getSalesByBranch() {
-        List<Branch> branches = branchRepository.findAll();
-        List<Invoice> invoices = invoiceRepository.findAll();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Branch> branches = branchRepository.findByCompanyIdAndDeletedAtIsNull(companyId);
+        List<Invoice> invoices = invoiceRepository.findByCompanyId(companyId);
         double totalRev = invoices.stream().mapToDouble(i -> i.getTotalAmount().doubleValue()).sum();
         if (totalRev <= 0) totalRev = 10000.0;
 
@@ -158,7 +161,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getSalesByEmployee() {
-        List<Invoice> invoices = invoiceRepository.findAll();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Invoice> invoices = invoiceRepository.findByCompanyId(companyId);
         double totalRev = invoices.stream().mapToDouble(i -> i.getTotalAmount().doubleValue()).sum();
 
         List<Map<String, Object>> rows = List.of(
@@ -175,7 +179,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getQuotationFunnel() {
-        List<SalesOrder> quotes = salesOrderRepository.findAll();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<SalesOrder> quotes = salesOrderRepository.findByCompanyId(companyId);
         int issued = Math.max(2, quotes.size());
         int accepted = 1;
         int rejected = 0;
@@ -207,8 +212,9 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getInventorySummary() {
-        long totalProducts = productRepository.count();
-        long totalStockRecords = stockLevelRepository.count();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        long totalProducts = productRepository.countByCompanyIdAndDeletedAtIsNull(companyId);
+        long totalStockRecords = stockLevelRepository.countByCompanyId(companyId);
 
         List<Map<String, Object>> kpis = List.of(
                 createKpi("inv-valuation", "Valorización de Inventario", 485000.0, "currency", "up", "positive"),
@@ -221,7 +227,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getCriticalStock() {
-        List<Product> products = productRepository.findAll().stream().limit(10).toList();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Product> products = productRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream().limit(10).toList();
         List<Map<String, Object>> rows = new ArrayList<>();
         int i = 0;
         for (Product p : products) {
@@ -242,7 +249,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getTurnover() {
-        List<Product> products = productRepository.findAll().stream().limit(10).toList();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Product> products = productRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream().limit(10).toList();
         List<Map<String, Object>> rows = new ArrayList<>();
         List<Map<String, Object>> points = new ArrayList<>();
 
@@ -304,7 +312,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getStaleProducts() {
-        List<Product> products = productRepository.findAll().stream().limit(8).toList();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Product> products = productRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream().limit(8).toList();
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Product p : products) {
             rows.add(Map.of(
@@ -323,7 +332,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getFinancialSummary() {
-        List<Invoice> invoices = invoiceRepository.findAll();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Invoice> invoices = invoiceRepository.findByCompanyId(companyId);
         double totalRev = invoices.stream().mapToDouble(i -> i.getTotalAmount().doubleValue()).sum();
         double totalTax = invoices.stream().mapToDouble(i -> i.getTaxAmount().doubleValue()).sum();
 
@@ -389,7 +399,9 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getCreditReport() {
-        List<Customer> customers = customerRepository.findAll().stream().filter(c -> c.getCreditLimit().compareTo(BigDecimal.ZERO) > 0).toList();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Customer> customers = customerRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
+                .filter(c -> c.getCreditLimit().compareTo(BigDecimal.ZERO) > 0).toList();
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Customer c : customers) {
             rows.add(Map.of(
@@ -404,7 +416,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getPurchaseSpend() {
-        List<Supplier> suppliers = supplierRepository.findAll();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Supplier> suppliers = supplierRepository.findByCompanyIdAndDeletedAtIsNull(companyId);
         List<Map<String, Object>> bySup = new ArrayList<>();
         List<Map<String, Object>> trendPoints = List.of(
                 Map.of("label", "Ene", "value", 24000.0),
@@ -437,7 +450,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getBranchComparison() {
-        List<Branch> branches = branchRepository.findAll();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Branch> branches = branchRepository.findByCompanyIdAndDeletedAtIsNull(companyId);
         List<Map<String, Object>> rows = new ArrayList<>();
         List<Map<String, Object>> points = new ArrayList<>();
 
@@ -475,7 +489,8 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getRankings() {
-        List<Product> products = productRepository.findAll().stream().limit(5).toList();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Product> products = productRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream().limit(5).toList();
         List<Map<String, Object>> prodRank = new ArrayList<>();
         int pVal = 120;
         for (Product p : products) {
@@ -483,7 +498,7 @@ public class ReportService {
             pVal -= 15;
         }
 
-        List<Customer> customers = customerRepository.findAll().stream().limit(5).toList();
+        List<Customer> customers = customerRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream().limit(5).toList();
         List<Map<String, Object>> custRank = new ArrayList<>();
         double cVal = 18500.0;
         for (Customer c : customers) {
@@ -491,7 +506,7 @@ public class ReportService {
             cVal -= 3200.0;
         }
 
-        List<Supplier> suppliers = supplierRepository.findAll().stream().limit(5).toList();
+        List<Supplier> suppliers = supplierRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream().limit(5).toList();
         List<Map<String, Object>> supRank = new ArrayList<>();
         double sVal = 42000.0;
         for (Supplier s : suppliers) {
@@ -516,17 +531,16 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getReportBranches() {
-        List<Branch> branches = branchRepository.findAll();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<Branch> branches = branchRepository.findByCompanyIdAndDeletedAtIsNull(companyId);
         List<Map<String, Object>> list = new ArrayList<>();
         for (Branch b : branches) {
-            if (b.getDeletedAt() == null) {
-                Map<String, Object> map = new HashMap<>();
-                map.put("id", String.valueOf(b.getId()));
-                map.put("name", b.getName());
-                map.put("code", b.getCode());
-                map.put("isMain", Boolean.TRUE.equals(b.getIsMain()));
-                list.add(map);
-            }
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", String.valueOf(b.getId()));
+            map.put("name", b.getName());
+            map.put("code", b.getCode());
+            map.put("isMain", Boolean.TRUE.equals(b.getIsMain()));
+            list.add(map);
         }
         return list;
     }

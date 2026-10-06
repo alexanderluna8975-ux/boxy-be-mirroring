@@ -1,8 +1,10 @@
 package com.boxy.boxy.core.config;
 
+import com.boxy.boxy.core.security.AuthRateLimitFilter;
 import com.boxy.boxy.core.security.CustomUserDetailsService;
 import com.boxy.boxy.core.security.JwtAuthFilter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -26,8 +28,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final AuthRateLimitFilter authRateLimitFilter;
     private final CustomUserDetailsService userDetailsService;
     private final CorsConfig corsConfig;
+
+    @Value("${springdoc.api-docs.enabled:false}")
+    private boolean swaggerEnabled;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -35,17 +41,30 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfig.corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/api/v1/auth/login",
-                                "/api/v1/auth/refresh",
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/actuator/health"
-                        ).permitAll()
-                        .anyRequest().authenticated()
+                .headers(headers -> headers
+                        // This is a JSON API with no server-rendered HTML views, so nothing needs to
+                        // load scripts/styles/frames from anywhere — deny everything by default.
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"))
+                        .frameOptions(frame -> frame.deny())
+                        .contentTypeOptions(contentType -> {})
+                        .referrerPolicy(referrer -> referrer.policy(
+                                org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                        .httpStrictTransportSecurity(hsts -> hsts
+                                .includeSubDomains(true)
+                                .maxAgeInSeconds(31_536_000))
                 )
+                .authorizeHttpRequests(auth -> {
+                    auth.requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll();
+                    // The WebSocket handshake can't carry an Authorization header from a browser, so it is
+                    // anonymous here; StompAuthChannelInterceptor authenticates the STOMP CONNECT frame
+                    // (and RealtimeSessionRegistry drops sockets that never do).
+                    auth.requestMatchers("/ws/**").permitAll();
+                    if (swaggerEnabled) {
+                        auth.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll();
+                    }
+                    auth.anyRequest().authenticated();
+                })
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {
                             response.setContentType("application/json");
@@ -59,7 +78,8 @@ public class SecurityConfig {
                         })
                 )
                 .authenticationProvider(authenticationProvider())
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(authRateLimitFilter, JwtAuthFilter.class);
 
         return http.build();
     }
@@ -74,7 +94,9 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        // Cost factor 12 (Spring's own default is 10) — BCrypt reads the cost back out of the
+        // stored hash itself, so this only affects new encodes; existing hashes still verify.
+        return new BCryptPasswordEncoder(12);
     }
 
     @Bean

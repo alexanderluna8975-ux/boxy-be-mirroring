@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -31,6 +32,7 @@ public class SalesController {
     // --- CUSTOMERS ---
 
     @GetMapping("/customers")
+    @PreAuthorize("hasAuthority('customers:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List all active customers")
     public ResponseEntity<ApiResponse<List<CustomerDto>>> getAllCustomers(
             @RequestParam(required = false) String search,
@@ -48,12 +50,14 @@ public class SalesController {
     }
 
     @GetMapping("/customers/{id}")
+    @PreAuthorize("hasAuthority('customers:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get customer details by ID")
     public ResponseEntity<ApiResponse<CustomerDto>> getCustomerById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getCustomerById(id)));
     }
 
     @PostMapping("/customers")
+    @PreAuthorize("hasAuthority('customers:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create a new customer")
     public ResponseEntity<ApiResponse<CustomerDto>> createCustomer(@Valid @RequestBody CreateCustomerRequest request) {
         CustomerDto created = salesService.createCustomer(request);
@@ -61,6 +65,7 @@ public class SalesController {
     }
 
     @PutMapping("/customers/{id}")
+    @PreAuthorize("hasAuthority('customers:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Update an existing customer")
     public ResponseEntity<ApiResponse<CustomerDto>> updateCustomer(
             @PathVariable Long id,
@@ -69,12 +74,14 @@ public class SalesController {
     }
 
     @PatchMapping("/customers/{id}/archive")
+    @PreAuthorize("hasAuthority('customers:delete') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Archive a customer")
     public ResponseEntity<ApiResponse<CustomerDto>> archiveCustomer(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.archiveCustomer(id), "Customer archived successfully"));
     }
 
     @GetMapping("/customers/check-unique")
+    @PreAuthorize("hasAuthority('customers:view') or hasAuthority('customers:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Check whether a customer taxId / document is unique")
     public ResponseEntity<Map<String, Boolean>> checkCustomerUnique(
             @RequestParam String field,
@@ -87,6 +94,7 @@ public class SalesController {
     // --- CATALOG LOOKUP FOR POS ---
 
     @GetMapping("/catalog/search")
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Search product catalog for POS checkout")
     public ResponseEntity<ApiResponse<List<CatalogItemDto>>> searchCatalog(
             @RequestParam(name = "search", required = false) String search) {
@@ -94,6 +102,7 @@ public class SalesController {
     }
 
     @GetMapping("/catalog/barcode/{barcode}")
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Find product catalog item by barcode")
     public ResponseEntity<ApiResponse<CatalogItemDto>> findCatalogByBarcode(@PathVariable String barcode) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.findCatalogByBarcode(barcode).orElse(null)));
@@ -102,6 +111,7 @@ public class SalesController {
     // --- QUOTATIONS ---
 
     @GetMapping("/quotations")
+    @PreAuthorize("hasAuthority('quotations:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List quotations with pagination")
     public ResponseEntity<ApiResponse<List<QuotationDto>>> getQuotations(
             @RequestParam(defaultValue = "1") int page,
@@ -113,12 +123,14 @@ public class SalesController {
     }
 
     @GetMapping("/quotations/{id}")
+    @PreAuthorize("hasAuthority('quotations:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get quotation by ID")
     public ResponseEntity<ApiResponse<QuotationDto>> getQuotationById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getQuotationById(id)));
     }
 
     @GetMapping("/quotations/{id}/pdf")
+    @PreAuthorize("hasAuthority('quotations:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Download the quotation as a printable PDF")
     public ResponseEntity<byte[]> getQuotationPdf(@PathVariable Long id) {
         byte[] pdf = salesService.generateQuotationPdf(id);
@@ -129,6 +141,7 @@ public class SalesController {
     }
 
     @PostMapping("/quotations")
+    @PreAuthorize("hasAuthority('quotations:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create a new quotation")
     public ResponseEntity<ApiResponse<QuotationDto>> createQuotation(@Valid @RequestBody CreateQuotationRequest request) {
         QuotationDto created = salesService.createQuotation(request);
@@ -136,6 +149,7 @@ public class SalesController {
     }
 
     @PutMapping("/quotations/{id}")
+    @PreAuthorize("hasAuthority('quotations:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Update a quotation")
     public ResponseEntity<ApiResponse<QuotationDto>> updateQuotation(
             @PathVariable Long id,
@@ -144,18 +158,21 @@ public class SalesController {
     }
 
     @PatchMapping("/quotations/{id}/send")
+    @PreAuthorize("hasAuthority('quotations:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Mark quotation as sent")
     public ResponseEntity<ApiResponse<QuotationDto>> sendQuotation(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.sendQuotation(id)));
     }
 
     @PatchMapping("/quotations/{id}/cancel")
+    @PreAuthorize("hasAuthority('quotations:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Cancel a quotation")
     public ResponseEntity<ApiResponse<QuotationDto>> cancelQuotation(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.cancelQuotation(id)));
     }
 
     @PatchMapping("/quotations/{id}/convert")
+    @PreAuthorize("hasAuthority('quotations:update') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Convert quotation to sale/credit")
     public ResponseEntity<ApiResponse<QuotationDto>> convertQuotation(
             @PathVariable Long id,
@@ -167,6 +184,7 @@ public class SalesController {
     // --- CASHIER SESSIONS ---
 
     @PostMapping("/sessions/open")
+    @PreAuthorize("hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Open a new cashier shift session")
     public ResponseEntity<ApiResponse<CashierSessionDto>> openSession(@Valid @RequestBody OpenSessionRequest request) {
         CashierSessionDto session = salesService.openSession(request);
@@ -174,6 +192,7 @@ public class SalesController {
     }
 
     @PostMapping("/sessions/{id}/close")
+    @PreAuthorize("hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Close an active cashier shift session")
     public ResponseEntity<ApiResponse<CashierSessionDto>> closeSession(
             @PathVariable Long id,
@@ -183,6 +202,7 @@ public class SalesController {
     }
 
     @GetMapping("/sessions/active")
+    @PreAuthorize("hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get the active cashier shift session for the current user and branch")
     public ResponseEntity<ApiResponse<CashierSessionDto>> getActiveSession(@RequestParam(required = false, defaultValue = "1") Long branchId) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getActiveSession(branchId).orElse(null)));
@@ -191,6 +211,7 @@ public class SalesController {
     // --- CHECKOUT & SALES ---
 
     @PostMapping({"/checkout", "/sales"})
+    @PreAuthorize("hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Execute atomic POS checkout (stock deduction, invoice and payment)")
     public ResponseEntity<ApiResponse<InvoiceDto>> checkout(
             @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
@@ -203,6 +224,7 @@ public class SalesController {
     }
 
     @GetMapping({"/sales/{id:\\d+}", "/sales/{id}"})
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get completed sale / invoice by ID")
     public ResponseEntity<ApiResponse<InvoiceDto>> getSaleById(@PathVariable String id) {
         Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
@@ -210,6 +232,7 @@ public class SalesController {
     }
 
     @GetMapping({"/sales/{id}/pdf"})
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Download the sale's Nota de Venta as a printable PDF")
     public ResponseEntity<byte[]> getSalePdf(@PathVariable String id) {
         Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
@@ -221,16 +244,18 @@ public class SalesController {
     }
 
     @PostMapping({"/sales/{id}/payments", "/sales/{id:\\d+}/payments"})
+    @PreAuthorize("hasAuthority('sales:receivables:read') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Record partial or total settlement payment for a sale")
     public ResponseEntity<ApiResponse<InvoiceDto>> recordPayment(
             @PathVariable String id,
-            @RequestBody Map<String, Object> payload) {
+            @Valid @RequestBody RecordPaymentRequest request) {
         Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
-        InvoiceDto updated = salesService.recordPayment(cleanId, payload);
+        InvoiceDto updated = salesService.recordPayment(cleanId, request);
         return ResponseEntity.ok(ApiResponse.ok(updated, "Payment recorded successfully"));
     }
 
     @PatchMapping({"/sales/{id}/void", "/sales/{id:\\d+}/void"})
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Void sale and restore inventory stock")
     public ResponseEntity<ApiResponse<InvoiceDto>> voidSale(@PathVariable String id) {
         Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
@@ -239,6 +264,7 @@ public class SalesController {
     }
 
     @GetMapping("/invoices")
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List sales invoices with pagination")
     public ResponseEntity<ApiResponse<List<InvoiceDto>>> getInvoices(
             @RequestParam(required = false) Long branchId,
@@ -250,6 +276,7 @@ public class SalesController {
     // --- SALES DOCUMENTS (UNIFIED LIST & SUMMARY FOR POS & VENTAS) ---
 
     @GetMapping("/documents")
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Unified sales & quotations documents list")
     public ResponseEntity<ApiResponse<List<SalesDocumentDto>>> getDocuments(
             @RequestParam(required = false) Long branchId,
@@ -270,6 +297,7 @@ public class SalesController {
     }
 
     @GetMapping("/documents/summary")
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "KPI summary for sales documents")
     public ResponseEntity<ApiResponse<SalesSummaryDto>> getDocumentsSummary(
             @RequestParam(required = false) Long branchId,
@@ -280,6 +308,7 @@ public class SalesController {
     // --- ACCOUNTS RECEIVABLE (CUENTAS POR COBRAR) ---
 
     @GetMapping("/receivables")
+    @PreAuthorize("hasAuthority('sales:receivables:read') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List credit sales (Cuentas por Cobrar), sorted by upcoming due date")
     public ResponseEntity<ApiResponse<List<CreditSaleListItemDto>>> getReceivables(
             @RequestParam(required = false) String search,
@@ -297,6 +326,7 @@ public class SalesController {
     }
 
     @GetMapping("/receivables/summary")
+    @PreAuthorize("hasAuthority('sales:receivables:read') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "KPI summary for Cuentas por Cobrar")
     public ResponseEntity<ApiResponse<ReceivablesSummaryDto>> getReceivablesSummary(
             @RequestParam(required = false) String search,
@@ -307,6 +337,7 @@ public class SalesController {
     }
 
     @GetMapping("/next-folio")
+    @PreAuthorize("hasAuthority('pos:create') or hasAuthority('quotations:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get preview of next sales and quotation folio numbers")
     public ResponseEntity<ApiResponse<NextFolioPreviewDto>> getNextFolioPreview() {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getNextFolioPreview()));
@@ -315,6 +346,7 @@ public class SalesController {
     // --- PRICE ADJUSTMENTS ---
 
     @GetMapping("/price-adjustments")
+    @PreAuthorize("hasAuthority('products:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List price adjustments with pagination")
     public ResponseEntity<ApiResponse<List<PriceAdjustmentDto>>> getPriceAdjustments(
             @RequestParam(required = false) String search,
@@ -329,12 +361,14 @@ public class SalesController {
     }
 
     @GetMapping("/price-adjustments/{id:\\d+}")
+    @PreAuthorize("hasAuthority('products:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get price adjustment details by ID")
     public ResponseEntity<ApiResponse<PriceAdjustmentDto>> getPriceAdjustmentById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getPriceAdjustmentById(id)));
     }
 
     @PostMapping("/price-adjustments")
+    @PreAuthorize("hasAuthority('products:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create and apply a bulk price adjustment by target margin")
     public ResponseEntity<ApiResponse<PriceAdjustmentDto>> createPriceAdjustment(
             @Valid @RequestBody CreatePriceAdjustmentRequest request) {

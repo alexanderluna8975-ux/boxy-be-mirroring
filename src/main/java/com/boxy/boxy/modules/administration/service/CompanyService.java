@@ -1,5 +1,6 @@
 package com.boxy.boxy.modules.administration.service;
 
+import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
 import com.boxy.boxy.core.security.SecurityUtils;
 import com.boxy.boxy.modules.administration.dto.CompanyProfileDto;
@@ -10,15 +11,41 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
+import java.util.Locale;
+import java.util.Set;
+
 @Service
 @RequiredArgsConstructor
 public class CompanyService {
 
+    /** Mirrors {@code PdfDocumentService.ALLOWED_EXTERNAL_IMAGE_HOSTS} — the PDF renderer refuses
+     *  any other host anyway, but rejecting it here too gives an immediate, clear error on save
+     *  instead of a logo that silently fails to appear on the next printed document. */
+    private static final Set<String> ALLOWED_LOGO_HOSTS = Set.of("res.cloudinary.com");
+
     private final CompanyRepository companyRepository;
+    private final AuditLogService auditLogService;
+
+    private static void validateLogoUrl(String logoUrl) {
+        if (logoUrl == null || logoUrl.isBlank()) {
+            return;
+        }
+        String host;
+        try {
+            host = URI.create(logoUrl).getHost();
+        } catch (IllegalArgumentException e) {
+            host = null;
+        }
+        if (host == null || !ALLOWED_LOGO_HOSTS.contains(host.toLowerCase(Locale.ROOT))) {
+            throw new BusinessException("INVALID_LOGO_URL",
+                    "El logo debe estar alojado en " + String.join(", ", ALLOWED_LOGO_HOSTS) + ".");
+        }
+    }
 
     @Transactional(readOnly = true)
     public CompanyProfileDto getCompanyProfile() {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
                 .or(companyRepository::findFirstByDeletedAtIsNull)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
@@ -28,7 +55,7 @@ public class CompanyService {
 
     @Transactional
     public CompanyProfileDto updateCompanyProfile(UpdateCompanyProfileRequest request) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findByIdAndDeletedAtIsNull(companyId)
                 .or(companyRepository::findFirstByDeletedAtIsNull)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
@@ -40,7 +67,10 @@ public class CompanyService {
         if (request.getEmail() != null) company.setEmail(request.getEmail());
         if (request.getPhone() != null) company.setPhone(request.getPhone());
         if (request.getAddress() != null) company.setAddress(request.getAddress());
-        if (request.getLogoUrl() != null) company.setLogoUrl(request.getLogoUrl());
+        if (request.getLogoUrl() != null) {
+            validateLogoUrl(request.getLogoUrl());
+            company.setLogoUrl(request.getLogoUrl());
+        }
 
         if (request.getPrimaryColor() != null) company.setPrimaryColor(request.getPrimaryColor());
         if (request.getPrimaryHover() != null) company.setPrimaryHover(request.getPrimaryHover());
@@ -69,6 +99,8 @@ public class CompanyService {
         if (request.getTermPos() != null) company.setTermPos(request.getTermPos());
 
         Company updated = companyRepository.save(company);
+        auditLogService.record("Perfil de empresa actualizado", "Empresa", String.valueOf(updated.getId()),
+                updated.getTradeName() != null ? updated.getTradeName() : updated.getName(), null, null);
         return toDto(updated);
     }
 

@@ -1,6 +1,7 @@
 package com.boxy.boxy.modules.purchasing.service;
 
 import com.boxy.boxy.core.exception.BusinessException;
+import com.boxy.boxy.core.security.UserPrincipal;
 import com.boxy.boxy.core.sequence.DocumentSequenceService;
 import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.modules.administration.entity.Branch;
@@ -11,6 +12,7 @@ import com.boxy.boxy.modules.administration.repository.BranchRepository;
 import com.boxy.boxy.modules.administration.repository.CompanyRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.administration.repository.WarehouseRepository;
+import com.boxy.boxy.modules.administration.service.AuditLogService;
 import com.boxy.boxy.modules.catalog.entity.Product;
 import com.boxy.boxy.modules.catalog.entity.ProductCostHistory;
 import com.boxy.boxy.modules.catalog.repository.ProductCostHistoryRepository;
@@ -31,12 +33,16 @@ import com.boxy.boxy.modules.purchasing.repository.GoodsReceiptRepository;
 import com.boxy.boxy.modules.purchasing.repository.PurchaseOrderRepository;
 import com.boxy.boxy.modules.purchasing.repository.SupplierRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -62,6 +68,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PurchasingServiceTest {
 
+    private static final Long COMPANY_ID = 1L;
+
     @Mock private SupplierRepository supplierRepository;
     @Mock private PurchaseOrderRepository purchaseOrderRepository;
     @Mock private GoodsReceiptRepository goodsReceiptRepository;
@@ -74,9 +82,24 @@ class PurchasingServiceTest {
     @Mock private CompanyRepository companyRepository;
     @Mock private DocumentSequenceService documentSequenceService;
     @Mock private ProductCostHistoryRepository productCostHistoryRepository;
+    @Mock private AuditLogService auditLogService;
+    @Mock private com.boxy.boxy.core.realtime.RealtimeEventPublisher realtimeEvents;
 
     @InjectMocks
     private PurchasingService purchasingService;
+
+    @BeforeEach
+    void authenticateAsCompanyOne() {
+        UserPrincipal principal = UserPrincipal.create(
+                1L, COMPANY_ID, "buyer", "buyer@boxy.dev", "hash", "Buyer", 1L, "ACTIVE", List.of());
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     void jsonAliasDeserializesTheFrontendFieldNameOntoExpectedDeliveryDate() throws Exception {
@@ -100,13 +123,13 @@ class PurchasingServiceTest {
         request.setItems(Collections.emptyList());
 
         Company company = Company.builder().id(1L).build();
-        Branch branch = Branch.builder().id(1L).build();
+        Branch branch = Branch.builder().id(1L).company(company).build();
         Supplier supplier = Supplier.builder().id(1L).build();
         User user = User.builder().id(1L).build();
 
         when(companyRepository.findById(any())).thenReturn(Optional.of(company));
         when(branchRepository.findByIdAndDeletedAtIsNull(any())).thenReturn(Optional.of(branch));
-        when(supplierRepository.findByIdAndDeletedAtIsNull(any())).thenReturn(Optional.of(supplier));
+        when(supplierRepository.findByIdAndCompanyIdAndDeletedAtIsNull(any(), any())).thenReturn(Optional.of(supplier));
         when(userRepository.findByIdAndDeletedAtIsNull(any())).thenReturn(Optional.of(user));
         when(documentSequenceService.nextFolio(1L, DocumentType.PURCHASE_ORDER)).thenReturn("PO-00001");
         when(purchaseOrderRepository.save(any(PurchaseOrder.class)))
@@ -130,9 +153,10 @@ class PurchasingServiceTest {
         BigDecimal expectedUnitCost = new BigDecimal("42.50");
 
         Product product = Product.builder().id(10L).sku("SKU-1").name("Producto 1").build();
-        Warehouse warehouse = Warehouse.builder().id(1L).build();
-        User user = User.builder().id(1L).build();
         Company company = Company.builder().id(1L).build();
+        Branch branch = Branch.builder().id(1L).company(company).build();
+        Warehouse warehouse = Warehouse.builder().id(1L).branch(branch).build();
+        User user = User.builder().id(1L).build();
 
         PurchaseOrderItem poItem = PurchaseOrderItem.builder()
                 .product(product)
@@ -154,12 +178,13 @@ class PurchasingServiceTest {
 
         CreateGoodsReceiptRequest request = new CreateGoodsReceiptRequest();
         request.setPurchaseOrderId(1L);
+        request.setWarehouseId(1L);
         request.setItems(List.of(itemRequest));
 
-        when(purchaseOrderRepository.findById(1L)).thenReturn(Optional.of(po));
+        when(purchaseOrderRepository.findByIdAndCompanyId(1L, COMPANY_ID)).thenReturn(Optional.of(po));
         when(warehouseRepository.findByIdAndDeletedAtIsNull(anyLong())).thenReturn(Optional.of(warehouse));
         when(userRepository.findByIdAndDeletedAtIsNull(any())).thenReturn(Optional.of(user));
-        when(productRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(10L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(stockLevelRepository.findForUpdate(any(), any())).thenReturn(Optional.empty());
         when(stockLevelRepository.getTotalAvailableStockByProductId(10L)).thenReturn(BigDecimal.ZERO);
         when(documentSequenceService.nextFolio(1L, DocumentType.GOODS_RECEIPT)).thenReturn("REC-00001");
@@ -184,9 +209,10 @@ class PurchasingServiceTest {
         // 10 already on hand at Bs. 20, receiving 10 more at Bs. 30 -> average Bs. 25.
         Product product = Product.builder().id(10L).sku("SKU-1").name("Producto 1")
                 .costPrice(new BigDecimal("20.00")).build();
-        Warehouse warehouse = Warehouse.builder().id(1L).build();
-        User user = User.builder().id(1L).build();
         Company company = Company.builder().id(1L).build();
+        Branch branch = Branch.builder().id(1L).company(company).build();
+        Warehouse warehouse = Warehouse.builder().id(1L).branch(branch).build();
+        User user = User.builder().id(1L).build();
 
         PurchaseOrderItem poItem = PurchaseOrderItem.builder()
                 .product(product)
@@ -208,12 +234,13 @@ class PurchasingServiceTest {
 
         CreateGoodsReceiptRequest request = new CreateGoodsReceiptRequest();
         request.setPurchaseOrderId(1L);
+        request.setWarehouseId(1L);
         request.setItems(List.of(itemRequest));
 
-        when(purchaseOrderRepository.findById(1L)).thenReturn(Optional.of(po));
+        when(purchaseOrderRepository.findByIdAndCompanyId(1L, COMPANY_ID)).thenReturn(Optional.of(po));
         when(warehouseRepository.findByIdAndDeletedAtIsNull(anyLong())).thenReturn(Optional.of(warehouse));
         when(userRepository.findByIdAndDeletedAtIsNull(any())).thenReturn(Optional.of(user));
-        when(productRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(10L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(stockLevelRepository.findForUpdate(any(), any())).thenReturn(Optional.empty());
         when(stockLevelRepository.getTotalAvailableStockByProductId(10L)).thenReturn(new BigDecimal("10"));
         when(documentSequenceService.nextFolio(1L, DocumentType.GOODS_RECEIPT)).thenReturn("REC-00002");
@@ -249,7 +276,7 @@ class PurchasingServiceTest {
     @Test
     void approvePurchaseOrderLandsStraightOnOrdered() {
         PurchaseOrder po = PurchaseOrder.builder().id(1L).status("SUBMITTED").items(new ArrayList<>()).build();
-        when(purchaseOrderRepository.findById(1L)).thenReturn(Optional.of(po));
+        when(purchaseOrderRepository.findByIdAndCompanyId(1L, COMPANY_ID)).thenReturn(Optional.of(po));
         when(purchaseOrderRepository.save(any(PurchaseOrder.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -274,7 +301,7 @@ class PurchasingServiceTest {
         PurchaseOrder po = PurchaseOrder.builder()
                 .id(1L).status("SUBMITTED").items(new ArrayList<>(List.of(item))).build();
 
-        when(purchaseOrderRepository.findById(1L)).thenReturn(Optional.of(po));
+        when(purchaseOrderRepository.findByIdAndCompanyId(1L, COMPANY_ID)).thenReturn(Optional.of(po));
         when(purchaseOrderRepository.save(any(PurchaseOrder.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -308,7 +335,7 @@ class PurchasingServiceTest {
         PurchaseOrder po = PurchaseOrder.builder()
                 .id(1L).status("SUBMITTED").items(new ArrayList<>(List.of(item))).build();
 
-        when(purchaseOrderRepository.findById(1L)).thenReturn(Optional.of(po));
+        when(purchaseOrderRepository.findByIdAndCompanyId(1L, COMPANY_ID)).thenReturn(Optional.of(po));
         when(purchaseOrderRepository.save(any(PurchaseOrder.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -327,7 +354,7 @@ class PurchasingServiceTest {
     @Test
     void updatePurchaseOrderLineRejectedOutsideSubmitted() {
         PurchaseOrder po = PurchaseOrder.builder().id(1L).status("ORDERED").items(new ArrayList<>()).build();
-        when(purchaseOrderRepository.findById(1L)).thenReturn(Optional.of(po));
+        when(purchaseOrderRepository.findByIdAndCompanyId(1L, COMPANY_ID)).thenReturn(Optional.of(po));
 
         UpdatePurchaseOrderLineRequest request = new UpdatePurchaseOrderLineRequest();
         request.setQuantity(BigDecimal.TEN);
@@ -348,7 +375,7 @@ class PurchasingServiceTest {
         Supplier supplier = Supplier.builder().id(7L).name("ACME").isActive(true).build();
         Instant lastOrder = Instant.parse("2026-02-15T10:00:00Z");
 
-        when(supplierRepository.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(supplier));
+        when(supplierRepository.findByIdAndCompanyIdAndDeletedAtIsNull(7L, COMPANY_ID)).thenReturn(Optional.of(supplier));
         when(purchaseOrderRepository.countBySupplierId(7L)).thenReturn(3L);
         when(purchaseOrderRepository.findLastOrderDateBySupplierId(7L)).thenReturn(lastOrder);
         when(purchaseOrderRepository.sumTotalAmountBySupplierId(7L)).thenReturn(new BigDecimal("1250.00"));

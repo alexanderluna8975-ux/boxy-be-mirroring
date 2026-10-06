@@ -1,15 +1,20 @@
 package com.boxy.boxy.modules.sales.service;
 
 import com.boxy.boxy.core.exception.BusinessException;
+import com.boxy.boxy.core.realtime.events.SaleEvent;
+import com.boxy.boxy.core.realtime.events.StockChange;
+import com.boxy.boxy.core.security.UserPrincipal;
 import com.boxy.boxy.core.sequence.DocumentSequenceService;
 import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.modules.administration.entity.Branch;
 import com.boxy.boxy.modules.administration.entity.Company;
 import com.boxy.boxy.modules.administration.entity.User;
+import com.boxy.boxy.modules.administration.entity.Warehouse;
 import com.boxy.boxy.modules.administration.repository.BranchRepository;
 import com.boxy.boxy.modules.administration.repository.CompanyRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.administration.repository.WarehouseRepository;
+import com.boxy.boxy.modules.administration.service.AuditLogService;
 import com.boxy.boxy.modules.catalog.dto.ProductDto;
 import com.boxy.boxy.modules.catalog.entity.Brand;
 import com.boxy.boxy.modules.catalog.entity.Category;
@@ -24,7 +29,10 @@ import com.boxy.boxy.modules.sales.dto.CreateQuotationRequest;
 import com.boxy.boxy.modules.sales.dto.PriceAdjustmentDto;
 import com.boxy.boxy.modules.sales.dto.QuotationDto;
 import com.boxy.boxy.core.pdf.PdfDocumentService;
+import com.boxy.boxy.modules.sales.dto.RecordPaymentRequest;
 import com.boxy.boxy.modules.sales.entity.Customer;
+import com.boxy.boxy.modules.sales.entity.Invoice;
+import com.boxy.boxy.modules.sales.entity.InvoiceItem;
 import com.boxy.boxy.modules.sales.entity.SalesOrder;
 import com.boxy.boxy.modules.sales.repository.CashierSessionRepository;
 import com.boxy.boxy.modules.sales.repository.CustomerRepository;
@@ -32,6 +40,8 @@ import com.boxy.boxy.modules.sales.repository.InvoiceRepository;
 import com.boxy.boxy.modules.sales.repository.PaymentRepository;
 import com.boxy.boxy.modules.sales.repository.PriceAdjustmentRepository;
 import com.boxy.boxy.modules.sales.repository.SalesOrderRepository;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -41,6 +51,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -74,9 +86,26 @@ class SalesServiceTest {
     @Mock private PaymentRepository paymentRepository;
     @Mock private DocumentSequenceService documentSequenceService;
     @Mock private PdfDocumentService pdfDocumentService;
+    @Mock private AuditLogService auditLogService;
+    @Mock private com.boxy.boxy.core.realtime.RealtimeEventPublisher realtimeEvents;
 
     @InjectMocks
     private SalesService salesService;
+
+    private static final Long COMPANY_ID = 1L;
+
+    @BeforeEach
+    void authenticateAsCompanyOne() {
+        UserPrincipal principal = UserPrincipal.create(
+                1L, COMPANY_ID, "cashier", "cashier@boxy.dev", "hash", "Cashier", 1L, "ACTIVE", List.of());
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     private void stubCommon() {
         Company company = Company.builder().id(1L).build();
@@ -99,7 +128,7 @@ class SalesServiceTest {
     void skipsProductsWithNoCostOnlyWhenBasedOnCost() {
         stubCommon();
         Product noCost = product(10L, "0", "50.00");
-        when(productRepository.findByIdAndDeletedAtIsNull(10L)).thenReturn(Optional.of(noCost));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(10L, COMPANY_ID)).thenReturn(Optional.of(noCost));
 
         CreatePriceAdjustmentRequest request = CreatePriceAdjustmentRequest.builder()
                 .tariff("increase").unit("percent").amount(new BigDecimal("10"))
@@ -115,7 +144,7 @@ class SalesServiceTest {
     void repricesFromSalePriceEvenWithoutCost() {
         stubCommon();
         Product noCost = product(11L, "0", "50.00");
-        when(productRepository.findByIdAndDeletedAtIsNull(11L)).thenReturn(Optional.of(noCost));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(11L, COMPANY_ID)).thenReturn(Optional.of(noCost));
 
         CreatePriceAdjustmentRequest request = CreatePriceAdjustmentRequest.builder()
                 .tariff("increase").unit("percent").amount(new BigDecimal("10"))
@@ -135,8 +164,8 @@ class SalesServiceTest {
         stubCommon();
         Product a = product(20L, "40.00", "50.00");
         Product b = product(21L, "40.00", "50.00");
-        when(productRepository.findByIdAndDeletedAtIsNull(20L)).thenReturn(Optional.of(a));
-        when(productRepository.findByIdAndDeletedAtIsNull(21L)).thenReturn(Optional.of(b));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(20L, COMPANY_ID)).thenReturn(Optional.of(a));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(21L, COMPANY_ID)).thenReturn(Optional.of(b));
 
         CreatePriceAdjustmentRequest request = CreatePriceAdjustmentRequest.builder()
                 .tariff("increase").unit("percent").amount(new BigDecimal("25"))
@@ -245,7 +274,7 @@ class SalesServiceTest {
     void createQuotationAppliesTicketLevelDiscountAmount() {
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
-        Branch branch = Branch.builder().id(1L).name("Sucursal Central").build();
+        Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
         when(branchRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(branch));
         User user = User.builder().id(1L).build();
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
@@ -253,7 +282,7 @@ class SalesServiceTest {
 
         Product product = Product.builder().id(40L).sku("SKU-40").name("Producto 40")
                 .sellingPrice(new BigDecimal("100.00")).build();
-        when(productRepository.findByIdAndDeletedAtIsNull(40L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(40L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(salesOrderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreateQuotationRequest request = CreateQuotationRequest.builder()
@@ -267,7 +296,7 @@ class SalesServiceTest {
                         .build()))
                 .build();
         Customer customer = Customer.builder().id(1L).name("Cliente de Prueba").build();
-        when(customerRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(customer));
 
         QuotationDto result = salesService.createQuotation(request);
 
@@ -290,7 +319,7 @@ class SalesServiceTest {
     void quotationLineTotalMatchesQuantityTimesUnitPriceMinusDiscount() {
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
-        Branch branch = Branch.builder().id(1L).name("Sucursal Central").build();
+        Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
         when(branchRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(branch));
         User user = User.builder().id(1L).build();
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
@@ -298,7 +327,7 @@ class SalesServiceTest {
 
         Product product = Product.builder().id(42L).sku("SKU-42").name("Producto 42")
                 .sellingPrice(new BigDecimal("50.00")).build();
-        when(productRepository.findByIdAndDeletedAtIsNull(42L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(42L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(salesOrderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreateQuotationRequest request = CreateQuotationRequest.builder()
@@ -312,7 +341,7 @@ class SalesServiceTest {
                         .build()))
                 .build();
         Customer customer = Customer.builder().id(1L).name("Cliente de Prueba").build();
-        when(customerRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(customer));
 
         QuotationDto result = salesService.createQuotation(request);
 
@@ -334,7 +363,7 @@ class SalesServiceTest {
     void createQuotationPersistsValidUntil() {
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
-        Branch branch = Branch.builder().id(1L).name("Sucursal Central").build();
+        Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
         when(branchRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(branch));
         User user = User.builder().id(1L).build();
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
@@ -342,7 +371,7 @@ class SalesServiceTest {
 
         Product product = Product.builder().id(43L).sku("SKU-43").name("Producto 43")
                 .sellingPrice(new BigDecimal("10.00")).build();
-        when(productRepository.findByIdAndDeletedAtIsNull(43L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(43L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(salesOrderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreateQuotationRequest request = CreateQuotationRequest.builder()
@@ -357,7 +386,7 @@ class SalesServiceTest {
                         .build()))
                 .build();
         Customer customer = Customer.builder().id(1L).name("Cliente de Prueba").build();
-        when(customerRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(customer));
 
         QuotationDto result = salesService.createQuotation(request);
 
@@ -372,7 +401,7 @@ class SalesServiceTest {
     void createQuotationFloorsTotalAtZeroWhenDiscountExceedsSubtotal() {
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
-        Branch branch = Branch.builder().id(1L).name("Sucursal Central").build();
+        Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
         when(branchRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(branch));
         User user = User.builder().id(1L).build();
         when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
@@ -380,7 +409,7 @@ class SalesServiceTest {
 
         Product product = Product.builder().id(41L).sku("SKU-41").name("Producto 41")
                 .sellingPrice(new BigDecimal("10.00")).build();
-        when(productRepository.findByIdAndDeletedAtIsNull(41L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(41L, COMPANY_ID)).thenReturn(Optional.of(product));
         when(salesOrderRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         CreateQuotationRequest request = CreateQuotationRequest.builder()
@@ -394,10 +423,98 @@ class SalesServiceTest {
                         .build()))
                 .build();
         Customer customer = Customer.builder().id(1L).name("Cliente de Prueba").build();
-        when(customerRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(customer));
+        when(customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(customer));
 
         QuotationDto result = salesService.createQuotation(request);
 
         assertThat(result.getTotal()).isEqualByComparingTo("0");
+    }
+
+    // ---- real-time events (see RealtimeEventPublisher) ----
+
+    private Branch branch() {
+        Company company = Company.builder().id(COMPANY_ID).build();
+        return Branch.builder().id(3L).company(company).code("BR").name("Sucursal").build();
+    }
+
+    private Warehouse warehouseIn(Branch branch) {
+        return Warehouse.builder().id(7L).branch(branch).code("WH").name("Almacén").build();
+    }
+
+    private Invoice invoiceWithOneLine(String status, Warehouse warehouse, Product product, String quantity) {
+        Invoice invoice = Invoice.builder()
+                .id(50L).company(warehouse.getBranch().getCompany()).branch(warehouse.getBranch())
+                .warehouse(warehouse).customer(Customer.builder().id(1L).name("Cliente").build())
+                .series("B001").number("00042").status(status).documentType("TICKET")
+                .totalAmount(new BigDecimal("100")).build();
+        invoice.getItems().add(InvoiceItem.builder()
+                .id(1L).invoice(invoice).product(product).productName(product.getName()).sku(product.getSku())
+                .quantity(new BigDecimal(quantity)).unitPrice(BigDecimal.TEN).unitCost(BigDecimal.ONE)
+                .discountAmount(BigDecimal.ZERO).taxAmount(BigDecimal.ZERO).totalAmount(new BigDecimal("100"))
+                .build());
+        return invoice;
+    }
+
+    @Test
+    void voidSalePublishesTheRestoredStockAndAVoidedEvent() {
+        Warehouse warehouse = warehouseIn(branch());
+        Product product = product(5L, "3.00", "10.00");
+        product.setMinStockAlert(new BigDecimal("4"));
+        Invoice invoice = invoiceWithOneLine("PAID", warehouse, product, "6");
+        StockLevel stock = StockLevel.builder().id(1L).warehouse(warehouse).product(product)
+                .quantityAvailable(new BigDecimal("2")).build();
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+        when(stockLevelRepository.findByWarehouseIdAndProductIdAndVariantIdIsNull(7L, 5L)).thenReturn(Optional.of(stock));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        salesService.voidSale(50L);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<StockChange>> changes = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(realtimeEvents).stockChanged(org.mockito.ArgumentMatchers.eq(warehouse), changes.capture());
+        StockChange change = changes.getValue().get(0);
+        assertThat(change.productId()).isEqualTo(5L);
+        assertThat(change.availableBefore()).isEqualByComparingTo("2");
+        assertThat(change.availableAfter()).isEqualByComparingTo("8");
+        assertThat(change.minStock()).isEqualByComparingTo("4");
+        verify(realtimeEvents).sale(SaleEvent.Type.VOIDED, 3L, 50L, "B001-00042");
+    }
+
+    @Test
+    void voidingAnAlreadyVoidedSalePublishesNothing() {
+        Invoice invoice = invoiceWithOneLine("VOIDED", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+
+        assertThatThrownBy(() -> salesService.voidSale(50L)).isInstanceOf(BusinessException.class);
+
+        org.mockito.Mockito.verifyNoInteractions(realtimeEvents);
+    }
+
+    @Test
+    void recordPaymentPublishesAPaymentEvent() {
+        Invoice invoice = invoiceWithOneLine("PAID", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+        RecordPaymentRequest request = new RecordPaymentRequest();
+        request.setAmount(new BigDecimal("25"));
+        request.setPaymentMethod("cash");
+
+        salesService.recordPayment(50L, request);
+
+        verify(realtimeEvents).sale(SaleEvent.Type.PAYMENT_RECORDED, 3L, 50L, "B001-00042");
+    }
+
+    @Test
+    void aPaymentOnAVoidedSalePublishesNothing() {
+        Invoice invoice = invoiceWithOneLine("VOIDED", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+        RecordPaymentRequest request = new RecordPaymentRequest();
+        request.setAmount(BigDecimal.TEN);
+        request.setPaymentMethod("cash");
+
+        assertThatThrownBy(() -> salesService.recordPayment(50L, request)).isInstanceOf(BusinessException.class);
+
+        org.mockito.Mockito.verifyNoInteractions(realtimeEvents);
     }
 }

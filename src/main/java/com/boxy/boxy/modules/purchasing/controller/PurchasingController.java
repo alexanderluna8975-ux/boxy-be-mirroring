@@ -14,6 +14,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -31,6 +32,7 @@ public class PurchasingController {
     // --- SUPPLIERS ---
 
     @GetMapping("/suppliers")
+    @PreAuthorize("hasAuthority('suppliers:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List all active suppliers")
     public ResponseEntity<ApiResponse<List<SupplierDto>>> getAllSuppliers(
             @RequestParam(required = false) String search,
@@ -48,12 +50,14 @@ public class PurchasingController {
     }
 
     @GetMapping("/suppliers/{id}")
+    @PreAuthorize("hasAuthority('suppliers:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get supplier details by ID")
     public ResponseEntity<ApiResponse<SupplierDto>> getSupplierById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.getSupplierById(id)));
     }
 
     @PostMapping("/suppliers")
+    @PreAuthorize("hasAuthority('suppliers:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create a new supplier")
     public ResponseEntity<ApiResponse<SupplierDto>> createSupplier(@Valid @RequestBody CreateSupplierRequest request) {
         SupplierDto created = purchasingService.createSupplier(request);
@@ -61,6 +65,7 @@ public class PurchasingController {
     }
 
     @PutMapping("/suppliers/{id}")
+    @PreAuthorize("hasAuthority('suppliers:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Update supplier by ID")
     public ResponseEntity<ApiResponse<SupplierDto>> updateSupplier(
             @PathVariable Long id,
@@ -69,12 +74,14 @@ public class PurchasingController {
     }
 
     @PatchMapping("/suppliers/{id}/deactivate")
+    @PreAuthorize("hasAuthority('suppliers:delete') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Toggle supplier active status")
     public ResponseEntity<ApiResponse<SupplierDto>> deactivateSupplier(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.deactivateSupplier(id)));
     }
 
     @GetMapping("/suppliers/check-unique")
+    @PreAuthorize("hasAuthority('suppliers:view') or hasAuthority('suppliers:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Check whether a supplier taxId is unique")
     public ResponseEntity<Map<String, Boolean>> checkSupplierUnique(
             @RequestParam String field,
@@ -87,6 +94,7 @@ public class PurchasingController {
     // --- PURCHASE ORDERS ---
 
     @GetMapping("/orders")
+    @PreAuthorize("hasAuthority('purchases:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List purchase orders with pagination")
     public ResponseEntity<ApiResponse<List<PurchaseOrderDto>>> getPurchaseOrders(
             @RequestParam(required = false) Long branchId,
@@ -105,12 +113,14 @@ public class PurchasingController {
     }
 
     @GetMapping("/orders/{id}")
+    @PreAuthorize("hasAuthority('purchases:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get purchase order by ID")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> getPurchaseOrderById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.getPurchaseOrderById(id)));
     }
 
     @GetMapping("/orders/{id}/pdf")
+    @PreAuthorize("hasAuthority('purchases:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Download the purchase order as a printable PDF")
     public ResponseEntity<byte[]> getPurchaseOrderPdf(@PathVariable Long id) {
         byte[] pdf = purchasingService.generatePurchaseOrderPdf(id);
@@ -121,6 +131,7 @@ public class PurchasingController {
     }
 
     @PostMapping("/orders")
+    @PreAuthorize("hasAuthority('purchases:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create a new purchase order")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> createPurchaseOrder(@Valid @RequestBody CreatePurchaseOrderRequest request) {
         PurchaseOrderDto created = purchasingService.createPurchaseOrder(request);
@@ -128,6 +139,7 @@ public class PurchasingController {
     }
 
     @PutMapping("/orders/{id}")
+    @PreAuthorize("hasAuthority('purchases:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Update purchase order")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> updatePurchaseOrder(
             @PathVariable Long id,
@@ -136,12 +148,14 @@ public class PurchasingController {
     }
 
     @PatchMapping("/orders/{id}/submit")
+    @PreAuthorize("hasAuthority('purchases:create') or hasAuthority('purchases:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Submit purchase order for approval")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> submitPurchaseOrder(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.submitPurchaseOrder(id)));
     }
 
     @PatchMapping("/orders/{id}/lines/{productId}")
+    @PreAuthorize("hasAuthority('purchases:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Correct a line's quantity/cost/sale price, inline, while pending approval")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> updatePurchaseOrderLine(
             @PathVariable Long id, @PathVariable Long productId, @RequestBody UpdatePurchaseOrderLineRequest request) {
@@ -149,27 +163,31 @@ public class PurchasingController {
     }
 
     @PatchMapping("/orders/{id}/approve")
+    @PreAuthorize("hasAuthority('purchases:approve') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Approve a purchase order — immediately marks it as ordered/sent, no separate step")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> approvePurchaseOrder(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.approvePurchaseOrder(id)));
     }
 
     @PatchMapping("/orders/{id}/reject")
+    @PreAuthorize("hasAuthority('purchases:approve') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Reject purchase order")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> rejectPurchaseOrder(
             @PathVariable Long id,
-            @RequestBody(required = false) Map<String, String> body) {
-        String reason = body != null ? body.get("reason") : "Rechazado por administración";
+            @Valid @RequestBody(required = false) RejectPurchaseOrderRequest body) {
+        String reason = body != null && body.getReason() != null ? body.getReason() : "Rechazado por administración";
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.rejectPurchaseOrder(id, reason)));
     }
 
     @PatchMapping("/orders/{id}/mark-ordered")
+    @PreAuthorize("hasAuthority('purchases:approve') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Mark purchase order as ordered to supplier")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> markPurchaseOrderOrdered(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.markPurchaseOrderOrdered(id)));
     }
 
     @PatchMapping("/orders/{id}/cancel")
+    @PreAuthorize("hasAuthority('purchases:update') or hasAuthority('purchases:approve') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Cancel purchase order")
     public ResponseEntity<ApiResponse<PurchaseOrderDto>> cancelPurchaseOrder(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.cancelPurchaseOrder(id)));
@@ -178,6 +196,7 @@ public class PurchasingController {
     // --- RECEIVING / GOODS RECEIPTS ---
 
     @GetMapping({"/goods-receipts", "/receiving"})
+    @PreAuthorize("hasAuthority('purchases:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List goods receipts paginated")
     public ResponseEntity<ApiResponse<List<GoodsReceiptDto>>> getAllGoodsReceipts(
             @RequestParam(defaultValue = "1") int page,
@@ -189,12 +208,14 @@ public class PurchasingController {
     }
 
     @GetMapping({"/goods-receipts/{id}", "/receiving/{id}"})
+    @PreAuthorize("hasAuthority('purchases:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get goods receipt by ID")
     public ResponseEntity<ApiResponse<GoodsReceiptDto>> getGoodsReceiptById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.getGoodsReceiptById(id)));
     }
 
     @GetMapping({"/goods-receipts/{id}/pdf", "/receiving/{id}/pdf"})
+    @PreAuthorize("hasAuthority('purchases:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Download the goods receipt as a printable PDF")
     public ResponseEntity<byte[]> getGoodsReceiptPdf(@PathVariable Long id) {
         byte[] pdf = purchasingService.generateGoodsReceiptPdf(id);
@@ -205,12 +226,14 @@ public class PurchasingController {
     }
 
     @GetMapping("/receiving/pending")
+    @PreAuthorize("hasAuthority('purchases:view') or hasAuthority('purchases:receive') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List purchase orders pending goods receipt")
     public ResponseEntity<ApiResponse<List<PurchaseOrderDto>>> getPendingOrders() {
         return ResponseEntity.ok(ApiResponse.ok(purchasingService.getPendingPurchaseOrders()));
     }
 
     @PostMapping({"/goods-receipts", "/receiving"})
+    @PreAuthorize("hasAuthority('purchases:receive') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Receive goods into warehouse inventory from a purchase order")
     public ResponseEntity<ApiResponse<GoodsReceiptDto>> receiveGoods(@Valid @RequestBody CreateGoodsReceiptRequest request) {
         GoodsReceiptDto receipt = purchasingService.receiveGoods(request);

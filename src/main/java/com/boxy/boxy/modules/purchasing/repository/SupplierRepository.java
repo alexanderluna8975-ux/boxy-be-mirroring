@@ -16,6 +16,7 @@ public interface SupplierRepository extends JpaRepository<Supplier, Long> {
     List<Supplier> findByCompanyIdAndDeletedAtIsNull(Long companyId);
     Page<Supplier> findByCompanyIdAndDeletedAtIsNull(Long companyId, Pageable pageable);
     Optional<Supplier> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Supplier> findByIdAndCompanyIdAndDeletedAtIsNull(Long id, Long companyId);
     Optional<Supplier> findByCompanyIdAndTaxIdAndDeletedAtIsNull(Long companyId, String taxId);
 
     /** No `city` filter — the entity has no such column (only a free-text `address`). */

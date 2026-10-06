@@ -14,6 +14,8 @@ import java.util.List;
 @AllArgsConstructor
 public class UserProfileDto {
     private Long id;
+    /** The tenant this user belongs to — the frontend needs it to address company-scoped real-time topics. */
+    private Long companyId;
     private String username;
     private String email;
     private String firstName;

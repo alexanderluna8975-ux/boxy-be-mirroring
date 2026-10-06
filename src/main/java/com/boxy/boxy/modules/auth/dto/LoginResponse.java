@@ -7,14 +7,18 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+/** The refresh token is never in this body — it only ever travels as the {@code boxy_rt}
+ *  httpOnly cookie {@code AuthController} sets alongside this response. */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class LoginResponse {
     private String token;
-    private String refreshToken;
     private String tokenType;
     private long expiresIn;
     private UserProfileDto user;
+    /** Empty when there's nothing to report — see {@code DeviceService#pendingAlertsFor}. */
+    @Builder.Default
+    private List<NewDeviceAlertDto> newDeviceAlerts = List.of();
 }

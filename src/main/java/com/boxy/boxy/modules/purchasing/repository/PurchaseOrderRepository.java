@@ -19,6 +19,7 @@ public interface PurchaseOrderRepository extends JpaRepository<PurchaseOrder, Lo
     Page<PurchaseOrder> findByCompanyIdOrderByCreatedAtDesc(Long companyId, Pageable pageable);
     Optional<PurchaseOrder> findByOrderNumber(String orderNumber);
     java.util.List<PurchaseOrder> findByCompanyId(Long companyId);
+    Optional<PurchaseOrder> findByIdAndCompanyId(Long id, Long companyId);
 
     long countBySupplierId(Long supplierId);
 

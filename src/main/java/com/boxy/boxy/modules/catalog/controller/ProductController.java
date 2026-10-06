@@ -29,6 +29,7 @@ public class ProductController {
     private final com.boxy.boxy.modules.inventory.service.InventoryService inventoryService;
 
     @GetMapping("/products")
+    @PreAuthorize("hasAuthority('products:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get paginated list of products with filters")
     public ResponseEntity<ApiResponse<List<ProductDto>>> getProducts(
             @RequestParam(defaultValue = "1") int page,
@@ -104,18 +105,21 @@ public class ProductController {
     }
 
     @GetMapping("/products/{id}")
+    @PreAuthorize("hasAuthority('products:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get product by ID")
     public ResponseEntity<ApiResponse<ProductDto>> getProductById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(productService.getProductById(id)));
     }
 
     @GetMapping("/products/{id}/metrics")
+    @PreAuthorize("hasAuthority('products:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get computed stock/value/margin metrics for a product's detail page")
     public ResponseEntity<ApiResponse<ProductMetricsDto>> getProductMetrics(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(productService.getMetrics(id)));
     }
 
     @PutMapping("/products/{id}")
+    @PreAuthorize("hasAuthority('products:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Update an existing product")
     public ResponseEntity<ApiResponse<ProductDto>> updateProduct(
             @PathVariable Long id,
@@ -125,6 +129,7 @@ public class ProductController {
     }
 
     @PatchMapping("/products/{id}/archive")
+    @PreAuthorize("hasAuthority('products:delete') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Archive or unarchive a product")
     public ResponseEntity<ApiResponse<ProductDto>> archiveProduct(@PathVariable Long id) {
         ProductDto updated = productService.archiveProduct(id);
@@ -132,6 +137,7 @@ public class ProductController {
     }
 
     @GetMapping("/products/check-unique")
+    @PreAuthorize("hasAuthority('products:view') or hasAuthority('products:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Check uniqueness of SKU or barcode")
     public ResponseEntity<java.util.Map<String, Boolean>> checkUnique(
             @RequestParam String field,
@@ -142,12 +148,14 @@ public class ProductController {
     }
 
     @GetMapping("/products/{id}/stock")
+    @PreAuthorize("hasAuthority('products:view') or hasAuthority('inventory:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get stock levels for a product across warehouses")
     public ResponseEntity<ApiResponse<List<com.boxy.boxy.modules.inventory.dto.StockLevelDto>>> getProductStock(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(inventoryService.getStockLevelsByProduct(id)));
     }
 
     @GetMapping("/products/{id}/cost-history")
+    @PreAuthorize("hasAuthority('products:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get the cost history for a product — one entry per goods receipt that recalculated its cost")
     public ResponseEntity<ApiResponse<List<ProductCostHistoryDto>>> getProductCostHistory(
             @PathVariable Long id,
@@ -160,6 +168,7 @@ public class ProductController {
     }
 
     @PostMapping("/products")
+    @PreAuthorize("hasAuthority('products:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create a new product")
     public ResponseEntity<ApiResponse<ProductDto>> createProduct(@Valid @RequestBody CreateProductRequest request) {
         ProductDto created = productService.createProduct(request);
@@ -177,6 +186,7 @@ public class ProductController {
     }
 
     @GetMapping("/categories")
+    @PreAuthorize("hasAuthority('products:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List all product categories")
     public ResponseEntity<ApiResponse<List<CategoryDto>>> getCategories() {
         return ResponseEntity.ok(ApiResponse.ok(productService.getCategories()));
@@ -206,6 +216,7 @@ public class ProductController {
     }
 
     @GetMapping("/brands")
+    @PreAuthorize("hasAuthority('products:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List all product brands")
     public ResponseEntity<ApiResponse<List<BrandDto>>> getBrands() {
         return ResponseEntity.ok(ApiResponse.ok(productService.getBrands()));
@@ -235,6 +246,7 @@ public class ProductController {
     }
 
     @GetMapping("/units")
+    @PreAuthorize("hasAuthority('products:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "List all units of measure")
     public ResponseEntity<ApiResponse<List<UnitDto>>> getUnits() {
         return ResponseEntity.ok(ApiResponse.ok(productService.getUnits()));

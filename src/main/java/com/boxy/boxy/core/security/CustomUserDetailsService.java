@@ -13,7 +13,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -31,8 +33,12 @@ public class CustomUserDetailsService implements UserDetailsService {
         List<String> rolesAndPermissions = new ArrayList<>();
         Long defaultBranchId = null;
         boolean isSuperAdmin = false;
+        Set<Long> assignedBranchIds = new HashSet<>();
 
         for (UserBranchRole ubr : user.getBranchRoles()) {
+            if (ubr.getBranch() != null) {
+                assignedBranchIds.add(ubr.getBranch().getId());
+            }
             if (ubr.getRole() != null) {
                 rolesAndPermissions.add(ubr.getRole().getCode());
                 if ("ROLE_SUPER_ADMIN".equalsIgnoreCase(ubr.getRole().getCode())) {
@@ -77,7 +83,9 @@ public class CustomUserDetailsService implements UserDetailsService {
                 user.getFullName(),
                 defaultBranchId,
                 user.getStatus(),
-                rolesAndPermissions
+                user.getLockedUntil(),
+                rolesAndPermissions,
+                assignedBranchIds
         );
     }
 
