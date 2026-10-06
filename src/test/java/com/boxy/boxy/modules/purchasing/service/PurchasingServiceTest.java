@@ -83,6 +83,7 @@ class PurchasingServiceTest {
     @Mock private DocumentSequenceService documentSequenceService;
     @Mock private ProductCostHistoryRepository productCostHistoryRepository;
     @Mock private AuditLogService auditLogService;
+    @Mock private com.boxy.boxy.core.realtime.RealtimeEventPublisher realtimeEvents;
 
     @InjectMocks
     private PurchasingService purchasingService;

@@ -1,6 +1,8 @@
 package com.boxy.boxy.modules.administration.service;
 
+import com.boxy.boxy.core.realtime.events.AuditRecordedEvent;
 import com.boxy.boxy.core.security.SecurityUtils;
+import org.springframework.context.ApplicationEventPublisher;
 import com.boxy.boxy.core.security.UserPrincipal;
 import com.boxy.boxy.core.web.DateFilterParser;
 import com.boxy.boxy.modules.administration.dto.AuditLogDto;
@@ -41,6 +43,7 @@ public class AuditLogService {
     private final AuditLogRepository auditLogRepository;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * @param action       short past-tense description, e.g. "Usuario creado" — matches the
@@ -107,6 +110,8 @@ public class AuditLogService {
                     .build();
 
             auditLogRepository.save(entry);
+            // Lets NotificationRules tell the company's admins (delivered only after this commits).
+            eventPublisher.publishEvent(new AuditRecordedEvent(companyId, userId, action, entityType, resourceId, entityLabel));
         } catch (Exception e) {
             log.warn("Failed to record audit log: action='{}' entityType='{}' resourceId='{}'",
                     action, entityType, resourceId, e);

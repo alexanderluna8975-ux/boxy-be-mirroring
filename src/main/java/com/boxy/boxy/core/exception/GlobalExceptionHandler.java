@@ -187,6 +187,16 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(error, HttpStatus.NOT_FOUND);
     }
 
+    /**
+     * The client closed the connection while the response was being written (tab closed, page
+     * reloaded, request cancelled). There is nobody left to answer, so it is not an error — logging it
+     * as one, with a stack trace, only buries real failures.
+     */
+    @ExceptionHandler(org.springframework.web.context.request.async.AsyncRequestNotUsableException.class)
+    public void handleClientAbort(org.springframework.web.context.request.async.AsyncRequestNotUsableException ex) {
+        log.debug("Client disconnected before the response was written: {}", ex.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleGeneralException(Exception ex, HttpServletRequest request) {
         log.error("Unhandled internal server error: ", ex);

@@ -1,5 +1,7 @@
 package com.boxy.boxy.modules.catalog.service;
 
+import com.boxy.boxy.core.realtime.RealtimeEventPublisher;
+import com.boxy.boxy.core.realtime.events.StockChange;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
 import com.boxy.boxy.core.security.SecurityUtils;
@@ -50,6 +52,7 @@ public class ProductService {
     private final WarehouseRepository warehouseRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final RealtimeEventPublisher realtimeEvents;
     private final ProductCostHistoryRepository productCostHistoryRepository;
 
     @Transactional(readOnly = true)
@@ -198,6 +201,8 @@ public class ProductService {
                 .quantityAvailable(request.getInitialStock())
                 .build();
         stockLevelRepository.save(stockLevel);
+        realtimeEvents.stockChanged(warehouse, java.util.List.of(new StockChange(
+                product.getId(), product.getMinStockAlert(), BigDecimal.ZERO, request.getInitialStock())));
 
         User currentUser = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.requireCurrentUserId()).orElse(null);
 

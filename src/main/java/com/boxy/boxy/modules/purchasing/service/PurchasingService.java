@@ -1,5 +1,7 @@
 package com.boxy.boxy.modules.purchasing.service;
 
+import com.boxy.boxy.core.realtime.RealtimeEventPublisher;
+import com.boxy.boxy.core.realtime.events.StockChange;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
 import com.boxy.boxy.core.pdf.AmountInWordsEs;
@@ -66,6 +68,7 @@ public class PurchasingService {
     private final PdfDocumentService pdfDocumentService;
     private final ProductCostHistoryRepository productCostHistoryRepository;
     private final AuditLogService auditLogService;
+    private final RealtimeEventPublisher realtimeEvents;
 
     /** For `LocalDate` fields (issue/expected-delivery date) — no time-of-day to show. */
     private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy");
@@ -598,6 +601,7 @@ public class PurchasingService {
                 .build();
 
         List<ProductCostHistory> costHistoryEntries = new ArrayList<>();
+        List<StockChange> stockChanges = new ArrayList<>();
 
         if (request.getItems() != null) {
             for (var itemReq : request.getItems()) {
@@ -648,6 +652,8 @@ public class PurchasingService {
                 BigDecimal currStock = stock.getQuantityAvailable() != null ? stock.getQuantityAvailable() : BigDecimal.ZERO;
                 stock.setQuantityAvailable(currStock.add(qtyReceived));
                 stockLevelRepository.save(stock);
+                stockChanges.add(new StockChange(product.getId(), product.getMinStockAlert(),
+                        currStock, stock.getQuantityAvailable()));
 
                 // Record Kardex movement
                 StockMovement movement = StockMovement.builder()
@@ -704,6 +710,7 @@ public class PurchasingService {
 
         auditLogService.record("Mercadería recibida", "Recepción", String.valueOf(saved.getId()),
                 saved.getReceiptNumber(), null, "PO: " + po.getOrderNumber());
+        realtimeEvents.stockChanged(warehouse, stockChanges);
         return toReceiptDto(saved);
     }
 

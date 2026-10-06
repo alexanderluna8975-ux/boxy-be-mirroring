@@ -66,7 +66,7 @@ spring:
 app:
   jwt:
     # No default on purpose: JwtTokenProvider refuses to start without a >= 64-byte secret.
-    secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+    secret: ${JWT_SECRET}
     # Short-lived on purpose — the refresh token (below) is what now carries the real session
     # length, safely, via rotation + reuse detection + an httpOnly cookie.
     expiration-ms: ${JWT_EXPIRATION:900000} # 15 minutes
@@ -82,6 +82,15 @@ app:
     # token's 30 days — the device stays "known" (skips new-device alerts) well past any single
     # session's lifetime.
     cookie-max-age-days: ${DEVICE_COOKIE_MAX_AGE_DAYS:400}
+  realtime:
+    # A WebSocket opens anonymously and authenticates on its first STOMP frame; one that hasn't by
+    # then is dropped. The sweep also closes sockets whose access token has expired.
+    unauthenticated-timeout-seconds: ${REALTIME_UNAUTH_TIMEOUT_SECONDS:15}
+    sweep-interval-ms: ${REALTIME_SWEEP_INTERVAL_MS:10000}
+  notifications:
+    # Read notifications are history; unread ones are never purged.
+    read-retention-days: ${NOTIFICATIONS_READ_RETENTION_DAYS:90}
+    cleanup-cron: ${NOTIFICATIONS_CLEANUP_CRON:0 30 3 * * *}
   auth-cookie:
     # false only for local HTTP development (see boxy-fe's dev proxy); a real deployment is
     # always HTTPS, and the cookie must never go out over plain HTTP there.
@@ -97,8 +106,7 @@ app:
     # RECAPTCHA_ENABLED=false explicitly for local dev once a secret is configured, so a
     # deployment can never silently run without it once it's meant to be on (see RecaptchaService).
     enabled: ${RECAPTCHA_ENABLED:true}
-    secret: ${RECAPTCHA_SECRET:6LdfjtYtAAAAAIx8M4ZAdJVoZITuFjomdNOPsiEi}
-    #secret: ${RECAPTCHA_SECRET:INVALID_SECRET_KEY_12345}
+    secret: ${RECAPTCHA_SECRET}
     min-score: ${RECAPTCHA_MIN_SCORE:0.5}
     verify-url: https://www.google.com/recaptcha/api/siteverify
 

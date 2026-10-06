@@ -1,12 +1,15 @@
 package com.boxy.boxy.modules.sales.service;
 
 import com.boxy.boxy.core.exception.BusinessException;
+import com.boxy.boxy.core.realtime.events.SaleEvent;
+import com.boxy.boxy.core.realtime.events.StockChange;
 import com.boxy.boxy.core.security.UserPrincipal;
 import com.boxy.boxy.core.sequence.DocumentSequenceService;
 import com.boxy.boxy.core.sequence.DocumentType;
 import com.boxy.boxy.modules.administration.entity.Branch;
 import com.boxy.boxy.modules.administration.entity.Company;
 import com.boxy.boxy.modules.administration.entity.User;
+import com.boxy.boxy.modules.administration.entity.Warehouse;
 import com.boxy.boxy.modules.administration.repository.BranchRepository;
 import com.boxy.boxy.modules.administration.repository.CompanyRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
@@ -26,7 +29,10 @@ import com.boxy.boxy.modules.sales.dto.CreateQuotationRequest;
 import com.boxy.boxy.modules.sales.dto.PriceAdjustmentDto;
 import com.boxy.boxy.modules.sales.dto.QuotationDto;
 import com.boxy.boxy.core.pdf.PdfDocumentService;
+import com.boxy.boxy.modules.sales.dto.RecordPaymentRequest;
 import com.boxy.boxy.modules.sales.entity.Customer;
+import com.boxy.boxy.modules.sales.entity.Invoice;
+import com.boxy.boxy.modules.sales.entity.InvoiceItem;
 import com.boxy.boxy.modules.sales.entity.SalesOrder;
 import com.boxy.boxy.modules.sales.repository.CashierSessionRepository;
 import com.boxy.boxy.modules.sales.repository.CustomerRepository;
@@ -81,6 +87,7 @@ class SalesServiceTest {
     @Mock private DocumentSequenceService documentSequenceService;
     @Mock private PdfDocumentService pdfDocumentService;
     @Mock private AuditLogService auditLogService;
+    @Mock private com.boxy.boxy.core.realtime.RealtimeEventPublisher realtimeEvents;
 
     @InjectMocks
     private SalesService salesService;
@@ -421,5 +428,93 @@ class SalesServiceTest {
         QuotationDto result = salesService.createQuotation(request);
 
         assertThat(result.getTotal()).isEqualByComparingTo("0");
+    }
+
+    // ---- real-time events (see RealtimeEventPublisher) ----
+
+    private Branch branch() {
+        Company company = Company.builder().id(COMPANY_ID).build();
+        return Branch.builder().id(3L).company(company).code("BR").name("Sucursal").build();
+    }
+
+    private Warehouse warehouseIn(Branch branch) {
+        return Warehouse.builder().id(7L).branch(branch).code("WH").name("Almacén").build();
+    }
+
+    private Invoice invoiceWithOneLine(String status, Warehouse warehouse, Product product, String quantity) {
+        Invoice invoice = Invoice.builder()
+                .id(50L).company(warehouse.getBranch().getCompany()).branch(warehouse.getBranch())
+                .warehouse(warehouse).customer(Customer.builder().id(1L).name("Cliente").build())
+                .series("B001").number("00042").status(status).documentType("TICKET")
+                .totalAmount(new BigDecimal("100")).build();
+        invoice.getItems().add(InvoiceItem.builder()
+                .id(1L).invoice(invoice).product(product).productName(product.getName()).sku(product.getSku())
+                .quantity(new BigDecimal(quantity)).unitPrice(BigDecimal.TEN).unitCost(BigDecimal.ONE)
+                .discountAmount(BigDecimal.ZERO).taxAmount(BigDecimal.ZERO).totalAmount(new BigDecimal("100"))
+                .build());
+        return invoice;
+    }
+
+    @Test
+    void voidSalePublishesTheRestoredStockAndAVoidedEvent() {
+        Warehouse warehouse = warehouseIn(branch());
+        Product product = product(5L, "3.00", "10.00");
+        product.setMinStockAlert(new BigDecimal("4"));
+        Invoice invoice = invoiceWithOneLine("PAID", warehouse, product, "6");
+        StockLevel stock = StockLevel.builder().id(1L).warehouse(warehouse).product(product)
+                .quantityAvailable(new BigDecimal("2")).build();
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+        when(stockLevelRepository.findByWarehouseIdAndProductIdAndVariantIdIsNull(7L, 5L)).thenReturn(Optional.of(stock));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        salesService.voidSale(50L);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<StockChange>> changes = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(realtimeEvents).stockChanged(org.mockito.ArgumentMatchers.eq(warehouse), changes.capture());
+        StockChange change = changes.getValue().get(0);
+        assertThat(change.productId()).isEqualTo(5L);
+        assertThat(change.availableBefore()).isEqualByComparingTo("2");
+        assertThat(change.availableAfter()).isEqualByComparingTo("8");
+        assertThat(change.minStock()).isEqualByComparingTo("4");
+        verify(realtimeEvents).sale(SaleEvent.Type.VOIDED, 3L, 50L, "B001-00042");
+    }
+
+    @Test
+    void voidingAnAlreadyVoidedSalePublishesNothing() {
+        Invoice invoice = invoiceWithOneLine("VOIDED", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+
+        assertThatThrownBy(() -> salesService.voidSale(50L)).isInstanceOf(BusinessException.class);
+
+        org.mockito.Mockito.verifyNoInteractions(realtimeEvents);
+    }
+
+    @Test
+    void recordPaymentPublishesAPaymentEvent() {
+        Invoice invoice = invoiceWithOneLine("PAID", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+        RecordPaymentRequest request = new RecordPaymentRequest();
+        request.setAmount(new BigDecimal("25"));
+        request.setPaymentMethod("cash");
+
+        salesService.recordPayment(50L, request);
+
+        verify(realtimeEvents).sale(SaleEvent.Type.PAYMENT_RECORDED, 3L, 50L, "B001-00042");
+    }
+
+    @Test
+    void aPaymentOnAVoidedSalePublishesNothing() {
+        Invoice invoice = invoiceWithOneLine("VOIDED", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+        RecordPaymentRequest request = new RecordPaymentRequest();
+        request.setAmount(BigDecimal.TEN);
+        request.setPaymentMethod("cash");
+
+        assertThatThrownBy(() -> salesService.recordPayment(50L, request)).isInstanceOf(BusinessException.class);
+
+        org.mockito.Mockito.verifyNoInteractions(realtimeEvents);
     }
 }

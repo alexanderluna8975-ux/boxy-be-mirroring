@@ -51,7 +51,7 @@ class AuditLogServiceTest {
 
     @BeforeEach
     void setUp() {
-        auditLogService = new AuditLogService(auditLogRepository, userRepository, new ObjectMapper());
+        auditLogService = new AuditLogService(auditLogRepository, userRepository, new ObjectMapper(), org.mockito.Mockito.mock(org.springframework.context.ApplicationEventPublisher.class));
 
         UserPrincipal principal = UserPrincipal.create(USER_ID, COMPANY_ID, "tester", "tester@boxy.dev",
                 "x", "Test User", 1L, "ACTIVE", List.of());

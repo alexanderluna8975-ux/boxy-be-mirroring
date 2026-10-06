@@ -1,5 +1,7 @@
 package com.boxy.boxy.modules.catalog.service;
 
+import com.boxy.boxy.core.realtime.RealtimeEventPublisher;
+import com.boxy.boxy.core.realtime.events.StockChange;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.security.SecurityUtils;
 import com.boxy.boxy.modules.administration.entity.Company;
@@ -29,6 +31,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Map;
+import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.HashMap;
+import java.util.ArrayList;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -52,6 +59,7 @@ public class InventoryImportService {
     private final CompanyRepository companyRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final RealtimeEventPublisher realtimeEvents;
 
     /** Independent of `spring.servlet.multipart.max-file-size` (50MB, shared by every multipart
      *  endpoint) — a catalog import specifically has no legitimate reason to be this large. */
@@ -157,6 +165,9 @@ public class InventoryImportService {
         int totalRows = 0;
         int processedRows = 0;
         int createdCount = 0;
+        // One stock event per warehouse touched, not one per row — a file can carry hundreds of lines.
+        Map<Long, Warehouse> touchedWarehouses = new LinkedHashMap<>();
+        Map<Long, List<StockChange>> stockChangesByWarehouse = new HashMap<>();
         int updatedCount = 0;
         int skippedCount = 0;
         List<String> errors = new ArrayList<>();
@@ -315,6 +326,7 @@ public class InventoryImportService {
                         Optional<StockLevel> stockOpt = stockLevelRepository
                                 .findByWarehouseIdAndProductIdAndVariantIdIsNull(targetWarehouse.getId(), product.getId());
                         StockLevel stockLevel;
+                        BigDecimal availableBefore = stockOpt.map(StockLevel::getQuantityAvailable).orElse(BigDecimal.ZERO);
                         if (stockOpt.isPresent()) {
                             stockLevel = stockOpt.get();
                             stockLevel.setQuantityAvailable(quantity);
@@ -329,6 +341,10 @@ public class InventoryImportService {
                                     .build();
                             stockLevelRepository.save(stockLevel);
                         }
+
+                        touchedWarehouses.putIfAbsent(targetWarehouse.getId(), targetWarehouse);
+                        stockChangesByWarehouse.computeIfAbsent(targetWarehouse.getId(), k -> new ArrayList<>())
+                                .add(new StockChange(product.getId(), product.getMinStockAlert(), availableBefore, quantity));
 
                         // Create Stock Movement (Kardex)
                         String refId = "IMP-" + sku;
@@ -363,6 +379,8 @@ public class InventoryImportService {
                 fileType, createdCount, updatedCount, processedRows);
 
         auditLogService.record("Importación de productos", "Producto", null, originalFilename, null, summary);
+        stockChangesByWarehouse.forEach((warehouseId, changes) ->
+                realtimeEvents.stockChanged(touchedWarehouses.get(warehouseId), changes));
 
         return ImportResultDto.builder()
                 .filename(originalFilename)

@@ -56,6 +56,10 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> {
                     auth.requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll();
+                    // The WebSocket handshake can't carry an Authorization header from a browser, so it is
+                    // anonymous here; StompAuthChannelInterceptor authenticates the STOMP CONNECT frame
+                    // (and RealtimeSessionRegistry drops sockets that never do).
+                    auth.requestMatchers("/ws/**").permitAll();
                     if (swaggerEnabled) {
                         auth.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll();
                     }

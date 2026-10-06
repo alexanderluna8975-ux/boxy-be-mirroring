@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
@@ -67,6 +68,18 @@ public class JwtTokenProvider {
                 .parseSignedClaims(token)
                 .getPayload();
         return Long.parseLong(claims.getSubject());
+    }
+
+    /** Expiry of an already-validated token — the WebSocket layer closes a connection when its
+     *  CONNECT token expires, so a long-lived socket can't outlive the access token that opened it. */
+    public Instant getExpirationFromToken(String token) {
+        return Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getExpiration()
+                .toInstant();
     }
 
     public boolean validateToken(String authToken) {

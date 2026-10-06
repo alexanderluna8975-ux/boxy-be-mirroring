@@ -265,6 +265,7 @@ public class AuthService {
 
         return UserProfileDto.builder()
                 .id(user.getId())
+                .companyId(user.getCompany() != null ? user.getCompany().getId() : null)
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .firstName(user.getFirstName())

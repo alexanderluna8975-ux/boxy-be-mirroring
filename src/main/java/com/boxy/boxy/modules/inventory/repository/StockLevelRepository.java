@@ -41,6 +41,17 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
             "HAVING COALESCE(SUM(s.quantityAvailable), 0) > 0")
     List<Object[]> getBranchStockByProductId(@Param("productId") Long productId);
 
+    /** [productId, SUM(available)] across every warehouse — one grouped query for a whole batch of products. */
+    @Query("SELECT s.product.id, COALESCE(SUM(s.quantityAvailable), 0) FROM StockLevel s " +
+            "WHERE s.product.id IN :productIds GROUP BY s.product.id")
+    List<Object[]> sumAvailableByProductIds(@Param("productIds") java.util.Collection<Long> productIds);
+
+    /** [productId, SUM(available)] restricted to one branch's warehouses. */
+    @Query("SELECT s.product.id, COALESCE(SUM(s.quantityAvailable), 0) FROM StockLevel s " +
+            "WHERE s.product.id IN :productIds AND s.warehouse.branch.id = :branchId GROUP BY s.product.id")
+    List<Object[]> sumAvailableByProductIdsInBranch(@Param("productIds") java.util.Collection<Long> productIds,
+                                                    @Param("branchId") Long branchId);
+
     @Query("SELECT COALESCE(SUM(s.quantityInTransit), 0) FROM StockLevel s WHERE s.product.id = :productId")
     BigDecimal getTotalInTransitStockByProductId(@Param("productId") Long productId);
 

@@ -1,5 +1,7 @@
 package com.boxy.boxy.modules.inventory.service;
 
+import com.boxy.boxy.core.realtime.RealtimeEventPublisher;
+import com.boxy.boxy.core.realtime.events.StockChange;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
 import com.boxy.boxy.core.security.SecurityUtils;
@@ -49,6 +51,7 @@ public class StockAdjustmentService {
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
     private final DocumentSequenceService documentSequenceService;
+    private final RealtimeEventPublisher realtimeEvents;
 
     public static final List<AdjustmentReasonDto> REASONS = List.of(
             new AdjustmentReasonDto("1", "Conteo físico / Inventario cíclico"),
@@ -182,6 +185,7 @@ public class StockAdjustmentService {
         }
 
         Warehouse wh = adj.getWarehouse();
+        List<StockChange> stockChanges = new ArrayList<>();
 
         for (StockAdjustmentItem item : adj.getItems()) {
             Product p = item.getProduct();
@@ -189,13 +193,15 @@ public class StockAdjustmentService {
 
             StockLevel stockLevel = stockLevelRepository.getOrCreateForUpdate(wh, p);
 
-            BigDecimal updatedAvailable = stockLevel.getQuantityAvailable().add(delta);
+            BigDecimal availableBefore = stockLevel.getQuantityAvailable();
+            BigDecimal updatedAvailable = availableBefore.add(delta);
             if (updatedAvailable.compareTo(BigDecimal.ZERO) < 0) {
                 throw new BusinessException("NEGATIVE_STOCK",
                         "Approving this adjustment would take '" + p.getSku() + "' below zero at " + wh.getName() + ".");
             }
             stockLevel.setQuantityAvailable(updatedAvailable);
             stockLevelRepository.save(stockLevel);
+            stockChanges.add(new StockChange(p.getId(), p.getMinStockAlert(), availableBefore, updatedAvailable));
 
             // Kardex movement — signed like every other movement type (SALE_OUT, TRANSFER_OUT):
             // negative for a decrease, positive for an increase, so SUM(quantity) always tracks
@@ -223,6 +229,7 @@ public class StockAdjustmentService {
         auditLogService.record("Ajuste de inventario aprobado", "Ajuste de Inventario",
                 String.valueOf(adj.getId()), adj.getAdjustmentNumber(),
                 AdjustmentStatus.PENDING_APPROVAL.name(), AdjustmentStatus.APPROVED.name());
+        realtimeEvents.stockChanged(wh, stockChanges);
         return toDto(adj);
     }
 

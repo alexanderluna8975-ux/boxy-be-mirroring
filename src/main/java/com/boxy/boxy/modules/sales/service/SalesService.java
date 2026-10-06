@@ -1,5 +1,8 @@
 package com.boxy.boxy.modules.sales.service;
 
+import com.boxy.boxy.core.realtime.RealtimeEventPublisher;
+import com.boxy.boxy.core.realtime.events.SaleEvent;
+import com.boxy.boxy.core.realtime.events.StockChange;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.InsufficientStockException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
@@ -66,6 +69,7 @@ public class SalesService {
     private final DocumentSequenceService documentSequenceService;
     private final PdfDocumentService pdfDocumentService;
     private final AuditLogService auditLogService;
+    private final RealtimeEventPublisher realtimeEvents;
 
     /** Bolivia has one fixed offset (UTC-4, no DST) — same zone used for every generated PDF's dates. */
     private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm").withZone(ZoneId.of("America/La_Paz"));
@@ -567,6 +571,7 @@ public class SalesService {
                 .createdBy(user)
                 .build();
 
+        List<StockChange> stockChanges = new ArrayList<>();
         if (request.getItems() != null) {
             for (var itemReq : request.getItems()) {
                 Product product = findOwnedProduct(itemReq.getProductId(), companyId);
@@ -593,6 +598,8 @@ public class SalesService {
                 BigDecimal currentStock = stock.getQuantityAvailable() != null ? stock.getQuantityAvailable() : BigDecimal.ZERO;
                 stock.setQuantityAvailable(currentStock.subtract(qty));
                 stockLevelRepository.save(stock);
+                stockChanges.add(new StockChange(product.getId(), product.getMinStockAlert(),
+                        currentStock, stock.getQuantityAvailable()));
 
                 BigDecimal lineGross = qty.multiply(unitPrice);
                 BigDecimal lineDiscount = itemReq.getDiscountAmount() != null ? itemReq.getDiscountAmount() : BigDecimal.ZERO;
@@ -684,6 +691,10 @@ public class SalesService {
         cashierSessionRepository.save(session);
 
         Invoice saved = invoiceRepository.save(invoice);
+        realtimeEvents.stockChanged(warehouse, stockChanges);
+        auditLogService.record("Venta registrada", "Venta", String.valueOf(saved.getId()),
+                series + "-" + number, null, "Total: " + saved.getTotalAmount());
+        realtimeEvents.sale(SaleEvent.Type.CREATED, branchId, saved.getId(), series + "-" + number);
         return toInvoiceDto(saved);
     }
 
@@ -823,6 +834,7 @@ public class SalesService {
         Warehouse warehouse = invoice.getWarehouse();
         Long currentUserId = SecurityUtils.requireCurrentUserId();
         User user = userRepository.findById(currentUserId).orElse(null);
+        List<StockChange> stockChanges = new ArrayList<>();
 
         for (InvoiceItem item : invoice.getItems()) {
             if (item.getProduct() != null && warehouse != null) {
@@ -837,9 +849,11 @@ public class SalesService {
                                 .quantityInTransit(BigDecimal.ZERO)
                                 .build());
 
-                BigDecimal restoredQty = stock.getQuantityAvailable().add(item.getQuantity());
+                BigDecimal availableBefore = stock.getQuantityAvailable();
+                BigDecimal restoredQty = availableBefore.add(item.getQuantity());
                 stock.setQuantityAvailable(restoredQty);
                 stockLevelRepository.save(stock);
+                stockChanges.add(new StockChange(product.getId(), product.getMinStockAlert(), availableBefore, restoredQty));
 
                 StockMovement movement = StockMovement.builder()
                         .warehouse(warehouse)
@@ -860,6 +874,10 @@ public class SalesService {
         Invoice saved = invoiceRepository.save(invoice);
         String folio = saved.getSeries() + "-" + saved.getNumber();
         auditLogService.record("Venta anulada", "Venta", String.valueOf(saved.getId()), folio, null, null);
+        if (warehouse != null) {
+            realtimeEvents.stockChanged(warehouse, stockChanges);
+        }
+        realtimeEvents.sale(SaleEvent.Type.VOIDED, saved.getBranch().getId(), saved.getId(), folio);
         return toInvoiceDto(saved);
     }
 
@@ -889,6 +907,7 @@ public class SalesService {
         String folio = saved.getSeries() + "-" + saved.getNumber();
         auditLogService.record("Pago registrado", "Venta", String.valueOf(saved.getId()), folio,
                 null, "Monto: " + amount + " (" + method + ")");
+        realtimeEvents.sale(SaleEvent.Type.PAYMENT_RECORDED, saved.getBranch().getId(), saved.getId(), folio);
         return toInvoiceDto(saved);
     }
 
