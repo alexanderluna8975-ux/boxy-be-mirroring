@@ -34,6 +34,12 @@ public class QuotationDto {
      *  detail page can link straight to its Nota de Venta. */
     private Long saleId;
     private String saleFolio;
+    /** Accepted / pending / rejected — the same three states the Cotizaciones list shows. */
+    private String state;
+    /** Who made the quotation. */
+    private String quotedBy;
+    /** Who sold it, once converted. */
+    private String sellerName;
 
     @Data
     @Builder

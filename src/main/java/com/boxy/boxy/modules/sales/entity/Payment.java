@@ -36,6 +36,11 @@ public class Payment {
     @Builder.Default
     private String status = "CONFIRMED";
 
+    /** Set only for a collection recorded after the sale: the register that took the money in. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cashier_session_id")
+    private CashierSession cashierSession;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

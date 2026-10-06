@@ -95,10 +95,29 @@ public class SalesController {
 
     @GetMapping("/catalog/search")
     @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
-    @Operation(summary = "Search product catalog for POS checkout")
+    @Operation(summary = "Search the product catalog for POS checkout, one page at a time")
     public ResponseEntity<ApiResponse<List<CatalogItemDto>>> searchCatalog(
-            @RequestParam(name = "search", required = false) String search) {
-        return ResponseEntity.ok(ApiResponse.ok(salesService.searchCatalog(search)));
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(name = "search", required = false) String search,
+            @RequestParam(name = "filter.categoryId", required = false) Long categoryId,
+            @RequestParam(name = "filter.brandId", required = false) Long brandId,
+            @RequestParam(name = "filter.unitId", required = false) Long unitId,
+            @RequestParam(name = "filter.branchId", required = false) Long branchId,
+            @RequestParam(name = "filter.existence", required = false) String existence) {
+        int effectiveLimit = Math.min(Math.max(pageSize != null ? pageSize : (limit != null ? limit : 20), 1), 100);
+        int effectivePage = Math.max(page, 1);
+        Page<CatalogItemDto> paged = salesService.searchCatalog(search, categoryId, brandId, unitId, branchId, existence,
+                PageRequest.of(effectivePage - 1, effectiveLimit, org.springframework.data.domain.Sort.by("name").ascending().and(org.springframework.data.domain.Sort.by("id"))));
+        return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), PageMeta.of(effectivePage, effectiveLimit, paged.getTotalElements())));
+    }
+
+    @PostMapping("/catalog/lookup")
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Resolve SKUs / barcodes to catalog items (POS paste list)")
+    public ResponseEntity<ApiResponse<List<CatalogItemDto>>> lookupCatalog(@Valid @RequestBody CatalogLookupRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(salesService.lookupCatalog(request.getCodes())));
     }
 
     @GetMapping("/catalog/barcode/{barcode}")
@@ -184,7 +203,7 @@ public class SalesController {
     // --- CASHIER SESSIONS ---
 
     @PostMapping("/sessions/open")
-    @PreAuthorize("hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('cash-registers:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Open a new cashier shift session")
     public ResponseEntity<ApiResponse<CashierSessionDto>> openSession(@Valid @RequestBody OpenSessionRequest request) {
         CashierSessionDto session = salesService.openSession(request);
@@ -192,7 +211,7 @@ public class SalesController {
     }
 
     @PostMapping("/sessions/{id}/close")
-    @PreAuthorize("hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('cash-registers:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Close an active cashier shift session")
     public ResponseEntity<ApiResponse<CashierSessionDto>> closeSession(
             @PathVariable Long id,
@@ -201,8 +220,32 @@ public class SalesController {
         return ResponseEntity.ok(ApiResponse.ok(session, "Cashier session closed successfully"));
     }
 
+    @GetMapping("/sessions")
+    @PreAuthorize("hasAuthority('cash-registers:view') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "List cash registers (own, or all of the company for administrators), newest first")
+    public ResponseEntity<ApiResponse<List<CashierSessionDto>>> listSessions(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) Long branchId,
+            @RequestParam(required = false, name = "filter.status") String status) {
+        int effectiveLimit = Math.min(Math.max(pageSize != null ? pageSize : (limit != null ? limit : 20), 1), 100);
+        int effectivePage = Math.max(page, 1);
+        Page<CashierSessionDto> paged = salesService.listSessions(branchId, status,
+                PageRequest.of(effectivePage - 1, effectiveLimit, org.springframework.data.domain.Sort.by("openedAt").descending()));
+        return ResponseEntity.ok(ApiResponse.paged(paged.getContent(), PageMeta.of(effectivePage, effectiveLimit, paged.getTotalElements())));
+    }
+
+    @GetMapping("/sessions/{id:\\d+}")
+    @PreAuthorize("hasAuthority('cash-registers:view') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Detail of one cash register: income, expenses and every operation")
+    public ResponseEntity<ApiResponse<CashierSessionDetailDto>> getSessionDetail(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(salesService.getSessionDetail(id)));
+    }
+
+    // Anyone who sells (or manages registers) needs to know whether their register is open, so this read is open to all of them.
     @GetMapping("/sessions/active")
-    @PreAuthorize("hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('cash-registers:view', 'cash-registers:create', 'cash-registers:update', 'pos:create', 'pos:view', 'ROLE_SUPER_ADMIN')")
     @Operation(summary = "Get the active cashier shift session for the current user and branch")
     public ResponseEntity<ApiResponse<CashierSessionDto>> getActiveSession(@RequestParam(required = false, defaultValue = "1") Long branchId) {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getActiveSession(branchId).orElse(null)));
@@ -257,9 +300,10 @@ public class SalesController {
     @PatchMapping({"/sales/{id}/void", "/sales/{id:\\d+}/void"})
     @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Void sale and restore inventory stock")
-    public ResponseEntity<ApiResponse<InvoiceDto>> voidSale(@PathVariable String id) {
+    public ResponseEntity<ApiResponse<InvoiceDto>> voidSale(@PathVariable String id,
+                                                            @Valid @RequestBody VoidSaleRequest request) {
         Long cleanId = Long.parseLong(id.replace("sale-", "").trim());
-        InvoiceDto voided = salesService.voidSale(cleanId);
+        InvoiceDto voided = salesService.voidSale(cleanId, request.getReason());
         return ResponseEntity.ok(ApiResponse.ok(voided, "Sale voided and stock restored"));
     }
 
@@ -276,7 +320,7 @@ public class SalesController {
     // --- SALES DOCUMENTS (UNIFIED LIST & SUMMARY FOR POS & VENTAS) ---
 
     @GetMapping("/documents")
-    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('pos:view') or hasAuthority('pos:create') or hasAuthority('quotations:view') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Unified sales & quotations documents list")
     public ResponseEntity<ApiResponse<List<SalesDocumentDto>>> getDocuments(
             @RequestParam(required = false) Long branchId,
