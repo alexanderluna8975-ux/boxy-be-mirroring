@@ -1287,57 +1287,16 @@ public class SalesService {
                 .appliedAt(Instant.now())
                 .build();
 
-        boolean basedOnCost = "cost".equals(request.getBasedOn());
         Map<String, BigDecimal> overrides = request.getOverrides() != null ? request.getOverrides() : Map.of();
 
-        for (String rawId : request.getProductIds()) {
-            Long prodId;
-            try {
-                prodId = Long.parseLong(rawId.replace("product-", "").trim());
-            } catch (NumberFormatException ex) {
+        for (Product product : resolveAdjustmentProducts(companyId, request)) {
+            PriceAdjustmentLine line = buildAdjustmentLine(pa, product, request, overrides);
+            if (line == null) {
                 continue;
             }
-
-            Product product = productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(prodId, companyId).orElse(null);
-            if (product == null) {
-                continue;
-            }
-
-            BigDecimal cost = product.getCostPrice() != null ? product.getCostPrice() : BigDecimal.ZERO;
-            BigDecimal prevSalePrice = product.getSellingPrice() != null ? product.getSellingPrice() : BigDecimal.ZERO;
-
-            // Skip only when the formula would actually need a cost to work from — repricing off
-            // the current sale price never reads cost, so a product with none is still valid.
-            if (basedOnCost && cost.compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
-
-            BigDecimal basePrice = basedOnCost ? cost : prevSalePrice;
-            BigDecimal override = overrides.get(rawId);
-            boolean overridden = override != null;
-            BigDecimal newSalePrice = overridden
-                    ? override.setScale(4, java.math.RoundingMode.HALF_UP)
-                    : PriceAdjustmentCalculator.computeAdjustedPrice(
-                            basePrice, request.getTariff(), request.getUnit(), request.getAmount(), request.getRoundingMode());
-            BigDecimal prevMargin = computeMarginPercent(prevSalePrice, cost);
-            BigDecimal newMargin = computeMarginPercent(newSalePrice, cost);
-
-            PriceAdjustmentLine line = PriceAdjustmentLine.builder()
-                    .priceAdjustment(pa)
-                    .product(product)
-                    .sku(product.getSku())
-                    .productName(product.getName())
-                    .purchasePrice(cost)
-                    .previousSalePrice(prevSalePrice)
-                    .newSalePrice(newSalePrice)
-                    .previousMarginPercent(prevMargin)
-                    .newMarginPercent(newMargin)
-                    .overridden(overridden)
-                    .build();
-
             pa.getLines().add(line);
 
-            product.setSellingPrice(newSalePrice);
+            product.setSellingPrice(line.getNewSalePrice());
             productRepository.save(product);
         }
 
@@ -1351,6 +1310,164 @@ public class SalesService {
         return toPriceAdjustmentDto(saved);
     }
 
+    /**
+     * Read-only twin of {@link #createPriceAdjustment}: the same product resolution and the same
+     * math, but nothing is saved. Returns one page of lines plus totals over <em>all</em> of them,
+     * so a mass adjustment can be reviewed (and paged through) before it is applied.
+     */
+    @Transactional(readOnly = true)
+    public PriceAdjustmentPreviewDto previewPriceAdjustment(CreatePriceAdjustmentRequest request, Pageable pageable) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        Map<String, BigDecimal> overrides = request.getOverrides() != null ? request.getOverrides() : Map.of();
+        PriceAdjustment scratch = PriceAdjustment.builder().build();
+
+        List<PriceAdjustmentLine> lines = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
+        long skippedCount = 0;
+        for (Product product : resolveAdjustmentProducts(companyId, request)) {
+            PriceAdjustmentLine line = buildAdjustmentLine(scratch, product, request, overrides);
+            if (line == null) {
+                skippedCount++;
+                if (skipped.size() < 20) {
+                    skipped.add(product.getSku() + " — " + product.getName());
+                }
+            } else {
+                lines.add(line);
+            }
+        }
+
+        BigDecimal before = BigDecimal.ZERO;
+        BigDecimal after = BigDecimal.ZERO;
+        BigDecimal deltaSum = BigDecimal.ZERO;
+        int deltaCount = 0;
+        for (PriceAdjustmentLine l : lines) {
+            before = before.add(l.getPreviousSalePrice());
+            after = after.add(l.getNewSalePrice());
+            if (l.getPreviousSalePrice().compareTo(BigDecimal.ZERO) > 0) {
+                deltaSum = deltaSum.add(l.getNewSalePrice().subtract(l.getPreviousSalePrice())
+                        .divide(l.getPreviousSalePrice(), 4, java.math.RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100")));
+                deltaCount++;
+            }
+        }
+
+        int from = (int) Math.min((long) pageable.getPageNumber() * pageable.getPageSize(), lines.size());
+        int to = Math.min(from + pageable.getPageSize(), lines.size());
+        return PriceAdjustmentPreviewDto.builder()
+                .lines(lines.subList(from, to).stream().map(this::toPriceAdjustmentLineDto).toList())
+                .totalCount(lines.size())
+                .skippedCount(skippedCount)
+                .skippedSample(skipped)
+                .totalBefore(before)
+                .totalAfter(after)
+                .averageDeltaPercent(deltaCount > 0
+                        ? deltaSum.divide(BigDecimal.valueOf(deltaCount), 2, java.math.RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO)
+                .build();
+    }
+
+    /**
+     * The products an adjustment targets: the ones named in {@code productIds} plus, when a
+     * {@code scope} is given, every active product matching it — minus {@code excludedIds}. The
+     * scope is resolved here, at apply time, so the user's own existence choice is what counts.
+     */
+    private List<Product> resolveAdjustmentProducts(Long companyId, CreatePriceAdjustmentRequest request) {
+        boolean hasIds = request.getProductIds() != null && !request.getProductIds().isEmpty();
+        PriceAdjustmentScope scope = request.getScope();
+        if (!hasIds && scope == null) {
+            throw new BusinessException("NO_PRODUCTS", "Debe seleccionar al menos un producto o definir un alcance.");
+        }
+
+        Map<Long, Product> byId = new LinkedHashMap<>();
+        if (scope != null) {
+            String existence = "in-stock".equals(scope.getExistence()) || "out-of-stock".equals(scope.getExistence())
+                    ? scope.getExistence() : null;
+            productRepository.searchCatalog(companyId, null, scope.getCategoryId(), scope.getBrandId(), null, null,
+                    existence, Pageable.unpaged()).forEach(p -> byId.put(p.getId(), p));
+        }
+        if (hasIds) {
+            for (String rawId : request.getProductIds()) {
+                Long id = parseProductId(rawId);
+                if (id == null || byId.containsKey(id)) {
+                    continue;
+                }
+                productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(id, companyId)
+                        .ifPresent(p -> byId.put(p.getId(), p));
+            }
+        }
+        if (request.getExcludedIds() != null) {
+            for (String rawId : request.getExcludedIds()) {
+                Long id = parseProductId(rawId);
+                if (id != null) {
+                    byId.remove(id);
+                }
+            }
+        }
+        return new ArrayList<>(byId.values());
+    }
+
+    private Long parseProductId(String rawId) {
+        try {
+            return Long.parseLong(rawId.replace("product-", "").trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    /** One product's line under the request's formula (or manual override), or {@code null} when it must be skipped. */
+    private PriceAdjustmentLine buildAdjustmentLine(PriceAdjustment pa, Product product,
+                                                    CreatePriceAdjustmentRequest request,
+                                                    Map<String, BigDecimal> overrides) {
+        boolean basedOnCost = "cost".equals(request.getBasedOn());
+        BigDecimal cost = product.getCostPrice() != null ? product.getCostPrice() : BigDecimal.ZERO;
+        BigDecimal prevSalePrice = product.getSellingPrice() != null ? product.getSellingPrice() : BigDecimal.ZERO;
+
+        // Skip only when the formula would actually need a cost to work from — repricing off
+        // the current sale price never reads cost, so a product with none is still valid.
+        if (basedOnCost && cost.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+
+        BigDecimal basePrice = basedOnCost ? cost : prevSalePrice;
+        BigDecimal override = overrides.get("product-" + product.getId());
+        if (override == null) {
+            override = overrides.get(String.valueOf(product.getId()));
+        }
+        boolean overridden = override != null;
+        BigDecimal newSalePrice = overridden
+                ? override.setScale(4, java.math.RoundingMode.HALF_UP)
+                : PriceAdjustmentCalculator.computeAdjustedPrice(
+                        basePrice, request.getTariff(), request.getUnit(), request.getAmount(), request.getRoundingMode());
+
+        return PriceAdjustmentLine.builder()
+                .priceAdjustment(pa)
+                .product(product)
+                .sku(product.getSku())
+                .productName(product.getName())
+                .purchasePrice(cost)
+                .previousSalePrice(prevSalePrice)
+                .newSalePrice(newSalePrice)
+                .previousMarginPercent(computeMarginPercent(prevSalePrice, cost))
+                .newMarginPercent(computeMarginPercent(newSalePrice, cost))
+                .overridden(overridden)
+                .build();
+    }
+
+    private PriceAdjustmentLineDto toPriceAdjustmentLineDto(PriceAdjustmentLine l) {
+        return PriceAdjustmentLineDto.builder()
+                .id(l.getId())
+                .productId(l.getProduct() != null ? l.getProduct().getId() : null)
+                .sku(l.getSku())
+                .productName(l.getProductName())
+                .purchasePrice(l.getPurchasePrice())
+                .previousSalePrice(l.getPreviousSalePrice())
+                .newSalePrice(l.getNewSalePrice())
+                .previousMarginPercent(l.getPreviousMarginPercent())
+                .newMarginPercent(l.getNewMarginPercent())
+                .overridden(Boolean.TRUE.equals(l.getOverridden()))
+                .build();
+    }
+
     private BigDecimal computeMarginPercent(BigDecimal salePrice, BigDecimal cost) {
         if (salePrice == null || salePrice.compareTo(BigDecimal.ZERO) <= 0 || cost == null) {
             return null;
@@ -1361,18 +1478,7 @@ public class SalesService {
 
     private PriceAdjustmentDto toPriceAdjustmentDto(PriceAdjustment pa) {
         List<PriceAdjustmentLineDto> lineDtos = pa.getLines().stream()
-                .map(l -> PriceAdjustmentLineDto.builder()
-                        .id(l.getId())
-                        .productId(l.getProduct() != null ? l.getProduct().getId() : null)
-                        .sku(l.getSku())
-                        .productName(l.getProductName())
-                        .purchasePrice(l.getPurchasePrice())
-                        .previousSalePrice(l.getPreviousSalePrice())
-                        .newSalePrice(l.getNewSalePrice())
-                        .previousMarginPercent(l.getPreviousMarginPercent())
-                        .newMarginPercent(l.getNewMarginPercent())
-                        .overridden(Boolean.TRUE.equals(l.getOverridden()))
-                        .build())
+                .map(this::toPriceAdjustmentLineDto)
                 .toList();
 
         BigDecimal totalDelta = BigDecimal.ZERO;

@@ -2,7 +2,6 @@ package com.boxy.boxy.modules.sales.dto;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -37,8 +36,14 @@ public class CreatePriceAdjustmentRequest {
 
     private String notes;
 
-    @NotEmpty(message = "Debe seleccionar al menos un producto")
+    /** Products picked one by one. Optional when {@link #scope} names the target by rule. */
     private List<String> productIds;
+
+    /** Every active product matching these criteria (see {@link PriceAdjustmentScope}). */
+    private PriceAdjustmentScope scope;
+
+    /** Products to leave out of what {@link #scope} resolves to. */
+    private List<String> excludedIds;
 
     /** productId (same string shape as {@code productIds}) -> manual final price, for rows
      *  hand-edited after the bulk formula. A productId present here skips the formula for it. */

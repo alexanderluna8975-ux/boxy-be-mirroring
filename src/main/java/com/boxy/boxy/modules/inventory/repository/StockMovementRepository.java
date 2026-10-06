@@ -17,7 +17,8 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, Lo
     Page<StockMovement> findByProductIdOrderByCreatedAtDesc(Long productId, Pageable pageable);
     Page<StockMovement> findByWarehouseBranchCompanyIdOrderByCreatedAtDesc(Long companyId, Pageable pageable);
 
-    @Query("SELECT m FROM StockMovement m WHERE m.warehouse.branch.company.id = :companyId " +
+    @Query("SELECT m FROM StockMovement m LEFT JOIN m.product mp LEFT JOIN mp.brand mb LEFT JOIN mp.category mc " +
+           "WHERE m.warehouse.branch.company.id = :companyId " +
            "AND (:warehouseId IS NULL OR m.warehouse.id = :warehouseId) " +
            "AND (:productId IS NULL OR m.product.id = :productId) " +
            "AND (:movementTypes IS NULL OR m.movementType IN :movementTypes) " +
@@ -26,6 +27,8 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, Lo
            "AND (:search IS NULL " +
            "     OR LOWER(m.product.name) LIKE LOWER(CONCAT('%', :search, '%')) " +
            "     OR LOWER(m.product.sku) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "     OR LOWER(mb.name) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "     OR LOWER(mc.name) LIKE LOWER(CONCAT('%', :search, '%')) " +
            "     OR LOWER(m.referenceId) LIKE LOWER(CONCAT('%', :search, '%')))")
     Page<StockMovement> findAllFiltered(
             @Param("companyId") Long companyId,
