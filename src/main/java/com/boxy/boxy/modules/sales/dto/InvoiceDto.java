@@ -50,5 +50,7 @@ public class InvoiceDto {
     private Instant dueDate;
     private Instant voidedAt;
     private String voidedBy;
+    /** Why the sale was voided (null for sales voided before the reason was captured). */
+    private String voidReason;
     private Instant createdAt;
 }

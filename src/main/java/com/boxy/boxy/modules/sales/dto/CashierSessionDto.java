@@ -26,4 +26,10 @@ public class CashierSessionDto {
     private BigDecimal difference;
     private String status;
     private String notes;
+    /** Sales rung up in this register (voided ones excluded). */
+    private int salesCount;
+    /** Cash collected in this register — what, with the opening float, the drawer should hold. */
+    private BigDecimal cashSales;
+    /** Everything collected by other means (transfer / QR, card…). */
+    private BigDecimal nonCashSales;
 }

@@ -30,6 +30,7 @@ import com.boxy.boxy.modules.sales.dto.PriceAdjustmentDto;
 import com.boxy.boxy.modules.sales.dto.QuotationDto;
 import com.boxy.boxy.core.pdf.PdfDocumentService;
 import com.boxy.boxy.modules.sales.dto.RecordPaymentRequest;
+import com.boxy.boxy.modules.sales.entity.CashierSession;
 import com.boxy.boxy.modules.sales.entity.Customer;
 import com.boxy.boxy.modules.sales.entity.Invoice;
 import com.boxy.boxy.modules.sales.entity.InvoiceItem;
@@ -100,6 +101,17 @@ class SalesServiceTest {
                 1L, COMPANY_ID, "cashier", "cashier@boxy.dev", "hash", "Cashier", 1L, "ACTIVE", List.of());
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
+    }
+
+    /** The cashier has an open register in branch 1 (their own) and 3 (the one `branch()` builds). */
+    private CashierSession openRegisterInBranches() {
+        CashierSession register = CashierSession.builder().id(9L).status("OPEN")
+                .initialCash(new BigDecimal("100")).expectedCash(new BigDecimal("100")).build();
+        lenient().when(cashierSessionRepository.findByUserIdAndBranchIdAndStatus(1L, 1L, "OPEN"))
+                .thenReturn(Optional.of(register));
+        lenient().when(cashierSessionRepository.findByUserIdAndBranchIdAndStatus(1L, 3L, "OPEN"))
+                .thenReturn(Optional.of(register));
+        return register;
     }
 
     @AfterEach
@@ -186,26 +198,44 @@ class SalesServiceTest {
     }
 
     /**
-     * Regression for POS: `searchCatalog` used to hard-code a fixed page size (first 50, later
-     * 500), so any catalog bigger than that silently lost items past the page (only reachable by
-     * an exact barcode scan) — confirmed to actually bite once a real Excel import pushed the
-     * catalog past 500 SKUs. Confirms the repository is now asked for the whole active set,
-     * unpaged, instead of guessing a new fixed ceiling.
+     * POS Step 1 reads the catalog one page at a time (a real import runs to thousands of SKUs):
+     * the requested page and every filter must reach the repository query, and a blank search or an
+     * unknown `existence` value must mean "no filter" rather than a literal match.
      */
     @Test
-    void searchCatalogRequestsTheWholeCatalogUnpaged() {
-        when(productRepository.findAllFiltered(
-                any(), any(), any(), any(), any(), any(),
-                anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), any()))
+    void searchCatalogPassesThePageAndFiltersToTheRepository() {
+        when(productRepository.searchCatalog(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of()));
+        Pageable requested = org.springframework.data.domain.PageRequest.of(2, 20);
 
-        salesService.searchCatalog("");
+        salesService.searchCatalog("  ", 3L, 4L, 5L, 6L, "in-stock", requested);
 
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
-        verify(productRepository).findAllFiltered(
-                any(), any(), any(), any(), any(), any(),
-                anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), anyBoolean(), pageableCaptor.capture());
-        assertThat(pageableCaptor.getValue().isPaged()).isFalse();
+        verify(productRepository).searchCatalog(
+                any(), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq(3L),
+                org.mockito.ArgumentMatchers.eq(4L), org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.eq(6L), org.mockito.ArgumentMatchers.eq("in-stock"), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().isPaged()).isTrue();
+        assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(20);
+    }
+
+    @Test
+    void searchCatalogIgnoresAnUnknownExistenceValue() {
+        when(productRepository.searchCatalog(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        salesService.searchCatalog(null, null, null, null, null, "whatever", org.springframework.data.domain.PageRequest.of(0, 20));
+
+        verify(productRepository).searchCatalog(
+                any(), any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.isNull(), any());
+    }
+
+    @Test
+    void lookupCatalogSkipsTheQueryWhenNoCodeWasGiven() {
+        assertThat(salesService.lookupCatalog(java.util.Arrays.asList(" ", null))).isEmpty();
+
+        org.mockito.Mockito.verify(productRepository, org.mockito.Mockito.never()).findActiveByCodes(any(), any());
     }
 
     /**
@@ -272,6 +302,7 @@ class SalesServiceTest {
      */
     @Test
     void createQuotationAppliesTicketLevelDiscountAmount() {
+        openRegisterInBranches();
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
         Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
@@ -317,6 +348,7 @@ class SalesServiceTest {
      */
     @Test
     void quotationLineTotalMatchesQuantityTimesUnitPriceMinusDiscount() {
+        openRegisterInBranches();
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
         Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
@@ -361,6 +393,7 @@ class SalesServiceTest {
      */
     @Test
     void createQuotationPersistsValidUntil() {
+        openRegisterInBranches();
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
         Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
@@ -399,6 +432,7 @@ class SalesServiceTest {
      */
     @Test
     void createQuotationFloorsTotalAtZeroWhenDiscountExceedsSubtotal() {
+        openRegisterInBranches();
         Company company = Company.builder().id(1L).build();
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
         Branch branch = Branch.builder().id(1L).name("Sucursal Central").company(company).build();
@@ -457,6 +491,7 @@ class SalesServiceTest {
 
     @Test
     void voidSalePublishesTheRestoredStockAndAVoidedEvent() {
+        openRegisterInBranches();
         Warehouse warehouse = warehouseIn(branch());
         Product product = product(5L, "3.00", "10.00");
         product.setMinStockAlert(new BigDecimal("4"));
@@ -468,7 +503,10 @@ class SalesServiceTest {
         when(stockLevelRepository.findByWarehouseIdAndProductIdAndVariantIdIsNull(7L, 5L)).thenReturn(Optional.of(stock));
         when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        salesService.voidSale(50L);
+        salesService.voidSale(50L, "Cliente devolvió el pedido");
+
+        assertThat(invoice.getVoidReason()).isEqualTo("Cliente devolvió el pedido");
+        assertThat(invoice.getVoidedAt()).isNotNull();
 
         @SuppressWarnings("unchecked")
         org.mockito.ArgumentCaptor<List<StockChange>> changes = org.mockito.ArgumentCaptor.forClass(List.class);
@@ -486,13 +524,25 @@ class SalesServiceTest {
         Invoice invoice = invoiceWithOneLine("VOIDED", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
         when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
 
-        assertThatThrownBy(() -> salesService.voidSale(50L)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> salesService.voidSale(50L, "otro intento")).isInstanceOf(BusinessException.class);
 
         org.mockito.Mockito.verifyNoInteractions(realtimeEvents);
     }
 
     @Test
+    void voidingASaleRequiresAReasonAndChangesNothingWithout() {
+        Invoice invoice = invoiceWithOneLine("PAID", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+
+        assertThatThrownBy(() -> salesService.voidSale(50L, "   ")).isInstanceOf(BusinessException.class);
+
+        assertThat(invoice.getStatus()).isEqualTo("PAID");
+        org.mockito.Mockito.verifyNoInteractions(realtimeEvents);
+    }
+
+    @Test
     void recordPaymentPublishesAPaymentEvent() {
+        openRegisterInBranches();
         Invoice invoice = invoiceWithOneLine("PAID", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
         when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
         when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -503,6 +553,72 @@ class SalesServiceTest {
         salesService.recordPayment(50L, request);
 
         verify(realtimeEvents).sale(SaleEvent.Type.PAYMENT_RECORDED, 3L, 50L, "B001-00042");
+    }
+
+    @Test
+    void aPaymentAddsItsCashToTheOpenRegister() {
+        CashierSession register = openRegisterInBranches();
+        Invoice invoice = invoiceWithOneLine("PAID", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+        RecordPaymentRequest request = new RecordPaymentRequest();
+        request.setAmount(new BigDecimal("25"));
+        request.setPaymentMethod("cash");
+
+        salesService.recordPayment(50L, request);
+
+        assertThat(register.getExpectedCash()).isEqualByComparingTo("125");
+    }
+
+    @Test
+    void withoutAnOpenRegisterNothingCanBeCollectedOrQuoted() {
+        Invoice invoice = invoiceWithOneLine("PAID", warehouseIn(branch()), product(5L, "3.00", "10.00"), "1");
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+        when(cashierSessionRepository.findByUserIdAndBranchIdAndStatus(any(), any(), org.mockito.ArgumentMatchers.eq("OPEN")))
+                .thenReturn(Optional.empty());
+        RecordPaymentRequest payment = new RecordPaymentRequest();
+        payment.setAmount(BigDecimal.TEN);
+        payment.setPaymentMethod("cash");
+
+        assertThatThrownBy(() -> salesService.recordPayment(50L, payment))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code").isEqualTo("CASH_REGISTER_CLOSED");
+
+        Company company = Company.builder().id(1L).build();
+        when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
+        when(branchRepository.findByIdAndDeletedAtIsNull(1L))
+                .thenReturn(Optional.of(Branch.builder().id(1L).name("Central").company(company).build()));
+        when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+        CreateQuotationRequest quote = CreateQuotationRequest.builder()
+                .customerId(1L).discountAmount(BigDecimal.ZERO).notes("").lines(List.of()).build();
+        when(customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID))
+                .thenReturn(Optional.of(Customer.builder().id(1L).name("C").build()));
+
+        assertThatThrownBy(() -> salesService.createQuotation(quote))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code").isEqualTo("CASH_REGISTER_CLOSED");
+    }
+
+    @Test
+    void voidingASaleTakesItsCashOutOfTheOpenRegister() {
+        Warehouse warehouse = warehouseIn(branch());
+        Product product = product(5L, "3.00", "10.00");
+        Invoice invoice = invoiceWithOneLine("PAID", warehouse, product, "1");
+        CashierSession register = CashierSession.builder().id(9L).status("OPEN")
+                .initialCash(new BigDecimal("100")).expectedCash(new BigDecimal("160")).build();
+        invoice.setCashierSession(register);
+        invoice.getPayments().add(com.boxy.boxy.modules.sales.entity.Payment.builder()
+                .paymentMethod("CASH").amount(new BigDecimal("60")).status("CONFIRMED").build());
+        when(invoiceRepository.findByIdAndCompanyId(50L, COMPANY_ID)).thenReturn(Optional.of(invoice));
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+        when(stockLevelRepository.findByWarehouseIdAndProductIdAndVariantIdIsNull(7L, 5L))
+                .thenReturn(Optional.of(StockLevel.builder().id(1L).warehouse(warehouse).product(product)
+                        .quantityAvailable(new BigDecimal("2")).build()));
+        when(invoiceRepository.save(any(Invoice.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        salesService.voidSale(50L, "Error de digitación");
+
+        assertThat(register.getExpectedCash()).isEqualByComparingTo("100");
     }
 
     @Test

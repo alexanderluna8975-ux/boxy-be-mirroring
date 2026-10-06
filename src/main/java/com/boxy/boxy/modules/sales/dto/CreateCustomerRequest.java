@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 public class CreateCustomerRequest {
     private String documentType = "RFC";
 
+    /** NIT / CI — optional. */
     @JsonAlias({"taxId", "code", "documentNumber"})
     private String documentNumber;
 
@@ -21,5 +22,6 @@ public class CreateCustomerRequest {
     private String phone;
     private String address;
     private Long branchId;
-    private BigDecimal creditLimit = BigDecimal.ZERO;
+    /** Not captured by the UI any more; left null so an update never resets an existing limit. */
+    private BigDecimal creditLimit;
 }

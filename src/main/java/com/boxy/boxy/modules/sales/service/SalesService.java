@@ -106,7 +106,9 @@ public class SalesService {
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
-        String docNum = request.getDocumentNumber() != null ? request.getDocumentNumber().trim() : "CLI-" + System.currentTimeMillis();
+        // NIT / CI is optional: without one the customer is filed under a generated internal code.
+        String given = blankToNull(request.getDocumentNumber());
+        String docNum = given != null ? given : "CLI-" + System.currentTimeMillis();
 
         if (customerRepository.findByCompanyIdAndDocumentNumberAndDeletedAtIsNull(companyId, docNum).isPresent()) {
             throw new BusinessException("CUSTOMER_EXISTS", "A customer with document number '" + docNum + "' already exists.");
@@ -117,8 +119,8 @@ public class SalesService {
                 .documentType(request.getDocumentType() != null ? request.getDocumentType() : "RFC")
                 .documentNumber(docNum)
                 .name(request.getName().trim())
-                .email(request.getEmail())
-                .phone(request.getPhone())
+                .email(blankToNull(request.getEmail()))
+                .phone(blankToNull(request.getPhone()))
                 .address(request.getAddress())
                 .creditLimit(request.getCreditLimit() != null ? request.getCreditLimit() : BigDecimal.ZERO)
                 .currentCredit(BigDecimal.ZERO)
@@ -133,9 +135,20 @@ public class SalesService {
         Customer c = findOwnedCustomer(id);
 
         if (request.getName() != null) c.setName(request.getName().trim());
-        if (request.getDocumentNumber() != null) c.setDocumentNumber(request.getDocumentNumber().trim());
-        if (request.getEmail() != null) c.setEmail(request.getEmail());
-        if (request.getPhone() != null) c.setPhone(request.getPhone());
+        String newDocument = blankToNull(request.getDocumentNumber());
+        if (newDocument != null && !newDocument.equals(c.getDocumentNumber())) {
+            Long companyId = SecurityUtils.requireCurrentCompanyId();
+            customerRepository.findByCompanyIdAndDocumentNumberAndDeletedAtIsNull(companyId, newDocument)
+                    .filter(other -> !other.getId().equals(c.getId()))
+                    .ifPresent(other -> {
+                        throw new BusinessException("CUSTOMER_EXISTS",
+                                "A customer with document number '" + newDocument + "' already exists.");
+                    });
+            c.setDocumentNumber(newDocument);
+        }
+        // Email and phone are optional: an empty value clears them.
+        if (request.getEmail() != null) c.setEmail(blankToNull(request.getEmail()));
+        if (request.getPhone() != null) c.setPhone(blankToNull(request.getPhone()));
         if (request.getAddress() != null) c.setAddress(request.getAddress());
         if (request.getCreditLimit() != null) c.setCreditLimit(request.getCreditLimit());
 
@@ -167,16 +180,35 @@ public class SalesService {
     }
 
     @Transactional(readOnly = true)
-    public List<CatalogItemDto> searchCatalog(String term) {
+    public Page<CatalogItemDto> searchCatalog(String term, Long categoryId, Long brandId, Long unitId,
+                                              Long branchId, String existence, Pageable pageable) {
         Long companyId = SecurityUtils.requireCurrentCompanyId();
-        // Was capped at 50, then 500 — POS loads this once and filters/searches client-side as the
-        // cashier types (pos-page.component.ts), so any catalog bigger than the page size silently
-        // lost products past it (findable only by an exact barcode scan, a separate query). A real
-        // catalog import (Excel) can trivially exceed a few hundred SKUs, so this now fetches the
-        // whole active set unpaged instead of guessing a new fixed ceiling.
-        List<Product> products = productRepository.findAllFiltered(
-                companyId, term, null, null, true, null, false, false, false, false, false, Pageable.unpaged()).getContent();
-        return products.stream().map(this::toCatalogItemDto).toList();
+        // One page at a time, like the Products screen: a real catalog (Excel import) runs to
+        // thousands of SKUs, and loading them all made POS Step 1 unusably heavy. Search and every
+        // Step 1 filter are applied here, in the query, not in the browser.
+        String existenceFilter = "in-stock".equals(existence) || "out-of-stock".equals(existence) ? existence : null;
+        return productRepository
+                .searchCatalog(companyId, blankToNull(term), categoryId, brandId, unitId, branchId, existenceFilter, pageable)
+                .map(this::toCatalogItemDto);
+    }
+
+    /** Resolves pasted SKUs / barcodes (case-insensitive) to catalog items — "Pegar lista" in POS. */
+    @Transactional(readOnly = true)
+    public List<CatalogItemDto> lookupCatalog(List<String> codes) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        List<String> normalized = codes == null ? List.of() : codes.stream()
+                .filter(code -> code != null && !code.isBlank())
+                .map(code -> code.trim().toLowerCase())
+                .distinct()
+                .toList();
+        if (normalized.isEmpty()) {
+            return List.of();
+        }
+        return productRepository.findActiveByCodes(companyId, normalized).stream().map(this::toCatalogItemDto).toList();
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     @Transactional(readOnly = true)
@@ -250,6 +282,8 @@ public class SalesService {
 
         User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.requireCurrentUserId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", SecurityUtils.requireCurrentUserId()));
+
+        requireOpenSession(user.getId(), branchId);
 
         String orderNumber = documentSequenceService.nextFolio(companyId, DocumentType.QUOTATION);
 
@@ -404,6 +438,10 @@ public class SalesService {
                 .createdAt(so.getCreatedAt())
                 .saleId(resultingInvoice != null ? resultingInvoice.getId() : null)
                 .saleFolio(resultingInvoice != null ? invoiceFolio(resultingInvoice) : null)
+                .state(quotationState(so, resultingInvoice))
+                .quotedBy(so.getCreatedBy() != null ? so.getCreatedBy().getFullName() : null)
+                .sellerName(resultingInvoice != null && resultingInvoice.getCreatedBy() != null
+                        ? resultingInvoice.getCreatedBy().getFullName() : null)
                 .build();
     }
 
@@ -428,12 +466,55 @@ public class SalesService {
                 .map(this::toSessionDto);
     }
 
+    /**
+     * Money only moves through an open register: a sale, a quotation or a payment is refused unless
+     * the current user has opened their register in that branch ("Cajas"). Returns the open one.
+     */
+    private CashierSession requireOpenSession(Long userId, Long branchId) {
+        return cashierSessionRepository.findByUserIdAndBranchIdAndStatus(userId, branchId, "OPEN")
+                .orElseThrow(() -> new BusinessException("CASH_REGISTER_CLOSED",
+                        "Debes abrir tu caja antes de registrar ventas, cotizaciones o cobros.",
+                        org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY));
+    }
+
+    /** Administrators see every register in the company; anyone else only their own. */
+    private static boolean seesAllRegisters() {
+        var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null && authentication.getAuthorities().stream()
+                .anyMatch(a -> java.util.Set.of("ROLE_SUPER_ADMIN", "ROLE_ADMINISTRATOR", "ROLE_ADMIN").contains(a.getAuthority()));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CashierSessionDto> listSessions(Long branchId, String status, Pageable pageable) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        Long onlyUser = seesAllRegisters() ? null : SecurityUtils.requireCurrentUserId();
+        String statusFilter = status != null && !status.isBlank() ? status.trim().toUpperCase() : null;
+        return cashierSessionRepository.search(companyId, onlyUser, branchId, statusFilter, pageable)
+                .map(this::toSessionDto);
+    }
+
+    /** Everything that moved through one register — for its closing detail. Own registers, or any for administrators. */
+    @Transactional(readOnly = true)
+    public com.boxy.boxy.modules.sales.dto.CashierSessionDetailDto getSessionDetail(Long sessionId) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        CashierSession session = cashierSessionRepository.findByIdAndBranchCompanyId(sessionId, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("CashierSession", sessionId));
+        if (!session.getUser().getId().equals(SecurityUtils.requireCurrentUserId()) && !seesAllRegisters()) {
+            // Same answer as a register that doesn't exist: nobody learns that someone else's does.
+            throw new ResourceNotFoundException("CashierSession", sessionId);
+        }
+        return CashierSessionDetailAssembler.assemble(toSessionDto(session),
+                invoiceRepository.findByCashierSessionId(sessionId),
+                paymentRepository.findByCashierSessionId(sessionId),
+                session.getClosedAt());
+    }
+
     @Transactional
     public CashierSessionDto openSession(OpenSessionRequest request) {
         Long userId = SecurityUtils.requireCurrentUserId();
         Long companyId = SecurityUtils.requireCurrentCompanyId();
         if (cashierSessionRepository.findByUserIdAndBranchIdAndStatus(userId, request.getBranchId(), "OPEN").isPresent()) {
-            throw new BusinessException("SESSION_ALREADY_OPEN", "You already have an active shift session in this branch.");
+            throw new BusinessException("SESSION_ALREADY_OPEN", "Ya tienes una caja abierta en esta sucursal.");
         }
 
         Branch branch = branchRepository.findByIdAndDeletedAtIsNull(request.getBranchId())
@@ -449,10 +530,13 @@ public class SalesService {
                 .initialCash(request.getInitialCash())
                 .expectedCash(request.getInitialCash())
                 .status("OPEN")
-                .notes(request.getNotes())
+                .notes(blankToNull(request.getNotes()))
                 .build();
 
-        return toSessionDto(cashierSessionRepository.save(session));
+        CashierSession saved = cashierSessionRepository.save(session);
+        auditLogService.record("Caja abierta", "Caja", String.valueOf(saved.getId()), branch.getName(), null,
+                "Monto inicial: " + saved.getInitialCash());
+        return toSessionDto(saved);
     }
 
     @Transactional
@@ -462,18 +546,29 @@ public class SalesService {
                 .orElseThrow(() -> new ResourceNotFoundException("CashierSession", sessionId));
 
         if (!"OPEN".equals(session.getStatus())) {
-            throw new BusinessException("SESSION_NOT_OPEN", "Session is already closed.");
+            throw new BusinessException("SESSION_NOT_OPEN", "Esta caja ya está cerrada.");
+        }
+        // A register is closed by whoever opened it (or an administrator on their behalf).
+        if (!session.getUser().getId().equals(SecurityUtils.requireCurrentUserId()) && !seesAllRegisters()) {
+            throw new BusinessException("SESSION_NOT_YOURS", "Solo quien abrió la caja puede cerrarla.",
+                    org.springframework.http.HttpStatus.FORBIDDEN);
         }
 
         session.setClosedAt(Instant.now());
         session.setActualCash(request.getActualCash());
         session.setDifference(request.getActualCash().subtract(session.getExpectedCash()));
         session.setStatus("CLOSED");
-        if (request.getNotes() != null) {
-            session.setNotes((session.getNotes() != null ? session.getNotes() + " | " : "") + request.getNotes());
+        String closingNote = blankToNull(request.getNotes());
+        if (closingNote != null) {
+            String joined = (session.getNotes() != null ? session.getNotes() + " | " : "") + closingNote;
+            session.setNotes(joined.length() > 500 ? joined.substring(0, 500) : joined);
         }
 
-        return toSessionDto(cashierSessionRepository.save(session));
+        CashierSession saved = cashierSessionRepository.save(session);
+        auditLogService.record("Caja cerrada", "Caja", String.valueOf(saved.getId()), saved.getBranch().getName(),
+                "Esperado: " + saved.getExpectedCash(),
+                "Contado: " + saved.getActualCash() + " (diferencia " + saved.getDifference() + ")");
+        return toSessionDto(saved);
     }
 
     @Transactional
@@ -524,18 +619,8 @@ public class SalesService {
         User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", userId));
 
-        CashierSession session = cashierSessionRepository.findByUserIdAndBranchIdAndStatus(userId, branchId, "OPEN")
-                .orElseGet(() -> {
-                    CashierSession newSession = CashierSession.builder()
-                            .branch(branch)
-                            .user(user)
-                            .initialCash(BigDecimal.valueOf(1000))
-                            .expectedCash(BigDecimal.valueOf(1000))
-                            .status("OPEN")
-                            .notes("Auto-opened shift for POS")
-                            .build();
-                    return cashierSessionRepository.save(newSession);
-                });
+        // No more silently auto-opened register: the cashier must have opened theirs ("Cajas").
+        CashierSession session = requireOpenSession(userId, branchId);
 
         String series = "B001";
         // Correlative per company (not System.currentTimeMillis()), so the visible folio
@@ -821,19 +906,39 @@ public class SalesService {
     }
 
     @Transactional
-    public InvoiceDto voidSale(Long id) {
+    public InvoiceDto voidSale(Long id, String reason) {
         Invoice invoice = findOwnedInvoice(id);
 
         if ("VOIDED".equalsIgnoreCase(invoice.getStatus())) {
             throw new BusinessException("ALREADY_VOIDED", "La venta ya se encuentra anulada.");
         }
+        String cleanReason = blankToNull(reason);
+        if (cleanReason == null) {
+            throw new BusinessException("VOID_REASON_REQUIRED", "El motivo de la anulación es obligatorio.");
+        }
 
-        invoice.setStatus("VOIDED");
-
-        // Restore stock for each item in the invoice
         Warehouse warehouse = invoice.getWarehouse();
         Long currentUserId = SecurityUtils.requireCurrentUserId();
         User user = userRepository.findById(currentUserId).orElse(null);
+
+        // The cash taken for this sale leaves the drawer's expected total — but only while that
+        // register is still open; a closed register's count is history and is left alone.
+        CashierSession register = invoice.getCashierSession();
+        if (register != null && "OPEN".equals(register.getStatus())) {
+            BigDecimal cashTaken = invoice.getPayments().stream()
+                    .filter(p -> "CASH".equalsIgnoreCase(p.getPaymentMethod()) && p.getAmount() != null)
+                    .map(Payment::getAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            register.setExpectedCash(register.getExpectedCash().subtract(cashTaken));
+            cashierSessionRepository.save(register);
+        }
+
+        invoice.setStatus("VOIDED");
+        invoice.setVoidReason(cleanReason.length() > 500 ? cleanReason.substring(0, 500) : cleanReason);
+        invoice.setVoidedAt(Instant.now());
+        invoice.setVoidedBy(user);
+
+        // Restore stock for each item in the invoice
         List<StockChange> stockChanges = new ArrayList<>();
 
         for (InvoiceItem item : invoice.getItems()) {
@@ -864,7 +969,7 @@ public class SalesService {
                         .balanceAfter(restoredQty)
                         .referenceType("SALE_VOID")
                         .referenceId(invoice.getSeries() + "-" + invoice.getNumber())
-                        .notes("Anulación de venta " + invoice.getSeries() + "-" + invoice.getNumber())
+                        .notes(voidMovementNote(invoice))
                         .createdBy(user)
                         .build();
                 stockMovementRepository.save(movement);
@@ -873,12 +978,20 @@ public class SalesService {
 
         Invoice saved = invoiceRepository.save(invoice);
         String folio = saved.getSeries() + "-" + saved.getNumber();
-        auditLogService.record("Venta anulada", "Venta", String.valueOf(saved.getId()), folio, null, null);
+        auditLogService.record("Venta anulada", "Venta", String.valueOf(saved.getId()), folio, null,
+                "Motivo: " + saved.getVoidReason());
         if (warehouse != null) {
             realtimeEvents.stockChanged(warehouse, stockChanges);
         }
         realtimeEvents.sale(SaleEvent.Type.VOIDED, saved.getBranch().getId(), saved.getId(), folio);
         return toInvoiceDto(saved);
+    }
+
+    /** The stock movement's note column holds 255 characters; the reason alone may take 500. */
+    private static String voidMovementNote(Invoice invoice) {
+        String note = "Anulación de venta " + invoice.getSeries() + "-" + invoice.getNumber()
+                + ". Motivo: " + invoice.getVoidReason();
+        return note.length() > 255 ? note.substring(0, 255) : note;
     }
 
     @Transactional
@@ -889,9 +1002,16 @@ public class SalesService {
             throw new BusinessException("SALE_VOIDED", "No se pueden registrar pagos en una venta anulada.");
         }
 
+        // Collecting money needs an open register in the sale's branch; cash lands in its drawer.
+        CashierSession register = requireOpenSession(SecurityUtils.requireCurrentUserId(), invoice.getBranch().getId());
+
         BigDecimal amount = request.getAmount();
         String method = request.getPaymentMethod().toUpperCase();
         String note = request.getNote() != null ? request.getNote() : "";
+        if ("CASH".equals(method)) {
+            register.setExpectedCash(register.getExpectedCash().add(amount));
+            cashierSessionRepository.save(register);
+        }
 
         Payment payment = Payment.builder()
                 .invoice(invoice)
@@ -899,6 +1019,7 @@ public class SalesService {
                 .amount(amount)
                 .referenceCode(note)
                 .status("CONFIRMED")
+                .cashierSession(register)
                 .build();
         paymentRepository.save(payment);
         invoice.getPayments().add(payment);
@@ -950,7 +1071,40 @@ public class SalesService {
     }
 
     private CashierSessionDto toSessionDto(CashierSession s) {
+        // What this register collected, from the sales rung up in it (voided ones do not count).
+        int salesCount = 0;
+        BigDecimal cashSales = BigDecimal.ZERO;
+        BigDecimal nonCashSales = BigDecimal.ZERO;
+        for (Invoice inv : invoiceRepository.findByCashierSessionId(s.getId())) {
+            if ("VOIDED".equalsIgnoreCase(inv.getStatus())) {
+                continue;
+            }
+            salesCount++;
+            for (Payment p : inv.getPayments()) {
+                BigDecimal amount = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+                if ("CASH".equalsIgnoreCase(p.getPaymentMethod())) {
+                    cashSales = cashSales.add(amount);
+                } else {
+                    nonCashSales = nonCashSales.add(amount);
+                }
+            }
+        }
+        // Collections recorded against earlier sales while this register was open count as well.
+        for (Payment p : paymentRepository.findByCashierSessionId(s.getId())) {
+            if (p.getInvoice() != null && "VOIDED".equalsIgnoreCase(p.getInvoice().getStatus())) {
+                continue;
+            }
+            BigDecimal amount = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+            if ("CASH".equalsIgnoreCase(p.getPaymentMethod())) {
+                cashSales = cashSales.add(amount);
+            } else {
+                nonCashSales = nonCashSales.add(amount);
+            }
+        }
         return CashierSessionDto.builder()
+                .salesCount(salesCount)
+                .cashSales(cashSales)
+                .nonCashSales(nonCashSales)
                 .id(s.getId())
                 .branchId(s.getBranch().getId())
                 .branchName(s.getBranch().getName())
@@ -1048,8 +1202,10 @@ public class SalesService {
                 .dueDate(inv.getDueDate())
                 .quotationId(inv.getSalesOrder() != null ? inv.getSalesOrder().getId() : null)
                 .status(saleStatus)
-                .voidedAt("voided".equals(saleStatus) ? inv.getCreatedAt() : null)
-                .voidedBy("voided".equals(saleStatus) ? "Admin" : null)
+                .voidedAt("voided".equals(saleStatus) ? (inv.getVoidedAt() != null ? inv.getVoidedAt() : inv.getCreatedAt()) : null)
+                .voidedBy("voided".equals(saleStatus)
+                        ? (inv.getVoidedBy() != null ? inv.getVoidedBy().getFullName() : "Admin") : null)
+                .voidReason("voided".equals(saleStatus) ? inv.getVoidReason() : null)
                 .paymentMethod(payMethod)
                 .amountTendered(total)
                 .changeDue(BigDecimal.ZERO)
@@ -1285,10 +1441,10 @@ public class SalesService {
                 if (customerId != null && inv.getCustomer() != null && !customerId.equals(inv.getCustomer().getId())) {
                     continue;
                 }
-                // "Venta de Productos" only lists what's genuinely paid — a
-                // credit sale still owed on belongs to Cuentas por Cobrar, and a
-                // voided sale was never really collected either way.
-                if (!isFullyPaid(inv)) {
+                // The sales list shows what's genuinely paid (a credit sale still owed on
+                // belongs to Cuentas por Cobrar) and also voided sales, flagged "Anulada", so
+                // an annulment stays visible and traceable instead of vanishing from the list.
+                if (!isFullyPaid(inv) && !"VOIDED".equalsIgnoreCase(inv.getStatus())) {
                     continue;
                 }
                 docs.add(toSaleDocumentDto(inv));
@@ -1330,7 +1486,11 @@ public class SalesService {
                         }
                     }
                     if (status != null && !status.isBlank()) {
-                        if (d.getQuotationStatus() == null || !d.getQuotationStatus().equalsIgnoreCase(status)) {
+                        // The screen filters by its three states (accepted / pending / rejected);
+                        // a raw lifecycle status (e.g. "sent") still matches as before.
+                        boolean matchesState = d.getQuotationState() != null && d.getQuotationState().equalsIgnoreCase(status);
+                        boolean matchesRaw = d.getQuotationStatus() != null && d.getQuotationStatus().equalsIgnoreCase(status);
+                        if (!matchesState && !matchesRaw) {
                             return false;
                         }
                     }
@@ -1495,6 +1655,7 @@ public class SalesService {
                 .balanceDue(balanceDue)
                 .quotationStatus(null)
                 .branchId(inv.getBranch() != null ? String.valueOf(inv.getBranch().getId()) : "1")
+                .sellerName(inv.getCreatedBy() != null ? inv.getCreatedBy().getFullName() : null)
                 .build();
     }
 
@@ -1518,7 +1679,30 @@ public class SalesService {
                 .branchId(so.getBranch() != null ? String.valueOf(so.getBranch().getId()) : "1")
                 .saleId(resultingInvoice != null ? String.valueOf(resultingInvoice.getId()) : null)
                 .saleFolio(resultingInvoice != null ? invoiceFolio(resultingInvoice) : null)
+                .quotedBy(so.getCreatedBy() != null ? so.getCreatedBy().getFullName() : null)
+                .sellerName(resultingInvoice != null && resultingInvoice.getCreatedBy() != null
+                        ? resultingInvoice.getCreatedBy().getFullName() : null)
+                .quotationState(quotationState(so, resultingInvoice))
+                .validUntil(so.getValidUntil())
                 .build();
+    }
+
+    /**
+     * Collapses the quotation lifecycle into what the Cotizaciones screen shows. A resulting sale
+     * decides it (accepted, or rejected if that sale was voided); otherwise a cancelled / rejected
+     * quotation is rejected, a converted one with no sale on record is still accepted, and anything
+     * else is out with the customer — pending.
+     */
+    static String quotationState(SalesOrder so, Invoice resultingInvoice) {
+        if (resultingInvoice != null) {
+            return "VOIDED".equalsIgnoreCase(resultingInvoice.getStatus()) ? "rejected" : "accepted";
+        }
+        String status = so.getStatus() != null ? so.getStatus().toLowerCase() : "";
+        return switch (status) {
+            case "cancelled", "rejected" -> "rejected";
+            case "converted", "credit" -> "accepted";
+            default -> "pending";
+        };
     }
 
     // --- ACCOUNTS RECEIVABLE (CUENTAS POR COBRAR) ---
