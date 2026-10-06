@@ -411,6 +411,17 @@ public class SalesController {
         return ResponseEntity.ok(ApiResponse.ok(salesService.getPriceAdjustmentById(id)));
     }
 
+    @PostMapping("/price-adjustments/preview")
+    @PreAuthorize("hasAuthority('products:update') or hasAuthority('ROLE_SUPER_ADMIN')")
+    @Operation(summary = "Preview a price adjustment (one page of lines plus totals over all of them) without applying it")
+    public ResponseEntity<ApiResponse<PriceAdjustmentPreviewDto>> previewPriceAdjustment(
+            @Valid @RequestBody CreatePriceAdjustmentRequest request,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int pageSize) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                salesService.previewPriceAdjustment(request, PageRequest.of(Math.max(page, 1) - 1, Math.min(Math.max(pageSize, 1), 100)))));
+    }
+
     @PostMapping("/price-adjustments")
     @PreAuthorize("hasAuthority('products:update') or hasAuthority('ROLE_SUPER_ADMIN')")
     @Operation(summary = "Create and apply a bulk price adjustment by target margin")

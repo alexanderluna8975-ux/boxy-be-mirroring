@@ -27,6 +27,8 @@ import com.boxy.boxy.modules.sales.dto.CatalogItemDto;
 import com.boxy.boxy.modules.sales.dto.CreatePriceAdjustmentRequest;
 import com.boxy.boxy.modules.sales.dto.CreateQuotationRequest;
 import com.boxy.boxy.modules.sales.dto.PriceAdjustmentDto;
+import com.boxy.boxy.modules.sales.dto.PriceAdjustmentLineDto;
+import com.boxy.boxy.modules.sales.dto.PriceAdjustmentScope;
 import com.boxy.boxy.modules.sales.dto.QuotationDto;
 import com.boxy.boxy.core.pdf.PdfDocumentService;
 import com.boxy.boxy.modules.sales.dto.RecordPaymentRequest;
@@ -195,6 +197,77 @@ class SalesServiceTest {
         assertThat(overridden.isOverridden()).isTrue();
         assertThat(formulaDriven.getNewSalePrice()).isEqualByComparingTo("50.0000");
         assertThat(formulaDriven.isOverridden()).isFalse();
+    }
+
+    @Test
+    void aScopeTargetsEveryMatchingProductWithoutListingIds_andHonoursTheChosenExistence() {
+        stubCommon();
+        Product a = product(30L, "10.00", "20.00");
+        Product b = product(31L, "10.00", "20.00");
+        Product c = product(32L, "10.00", "20.00");
+        when(productRepository.searchCatalog(any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq("out-of-stock"), any()))
+                .thenReturn(new PageImpl<>(List.of(a, b, c)));
+
+        CreatePriceAdjustmentRequest request = CreatePriceAdjustmentRequest.builder()
+                .tariff("increase").unit("percent").amount(new BigDecimal("10"))
+                .basedOn("sale-price").roundingMode("none")
+                .scope(PriceAdjustmentScope.builder().existence("out-of-stock").build())
+                .excludedIds(List.of("product-31"))
+                .build();
+
+        PriceAdjustmentDto result = salesService.createPriceAdjustment(request);
+
+        assertThat(result.getLines()).extracting(PriceAdjustmentLineDto::getProductId).containsExactly(30L, 32L);
+        assertThat(a.getSellingPrice()).isEqualByComparingTo("22.0000");
+        assertThat(b.getSellingPrice()).isEqualByComparingTo("20.00");
+    }
+
+    @Test
+    void anAllExistenceScopeAppliesNoStockFilter() {
+        stubCommon();
+        when(productRepository.searchCatalog(any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.isNull(), any())).thenReturn(new PageImpl<>(List.of(product(40L, "10", "20"))));
+
+        salesService.createPriceAdjustment(CreatePriceAdjustmentRequest.builder()
+                .tariff("increase").unit("amount").amount(BigDecimal.ONE)
+                .basedOn("sale-price").roundingMode("none")
+                .scope(PriceAdjustmentScope.builder().existence("all").build())
+                .build());
+
+        verify(productRepository).searchCatalog(any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.isNull(), any());
+    }
+
+    @Test
+    void anAdjustmentWithNeitherProductsNorScopeIsRejected() {
+        assertThatThrownBy(() -> salesService.createPriceAdjustment(CreatePriceAdjustmentRequest.builder()
+                .tariff("increase").unit("amount").amount(BigDecimal.ONE)
+                .basedOn("sale-price").roundingMode("none").build()))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void previewPagesTheLinesButTotalsCoverEveryProductAndNothingIsSaved() {
+        List<Product> products = new java.util.ArrayList<>();
+        for (long i = 1; i <= 5; i++) {
+            products.add(product(50L + i, i == 5 ? "0" : "10", "100.00"));
+        }
+        when(productRepository.searchCatalog(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new PageImpl<>(products));
+
+        var preview = salesService.previewPriceAdjustment(CreatePriceAdjustmentRequest.builder()
+                .tariff("increase").unit("percent").amount(new BigDecimal("50"))
+                .basedOn("cost").roundingMode("none")
+                .scope(PriceAdjustmentScope.builder().existence("all").build())
+                .build(), org.springframework.data.domain.PageRequest.of(0, 2));
+
+        assertThat(preview.getLines()).hasSize(2);
+        assertThat(preview.getTotalCount()).isEqualTo(4);
+        assertThat(preview.getSkippedCount()).isEqualTo(1);
+        assertThat(preview.getTotalBefore()).isEqualByComparingTo("400.0000");
+        assertThat(preview.getTotalAfter()).isEqualByComparingTo("60.0000");
+        verify(productRepository, org.mockito.Mockito.never()).save(any());
     }
 
     /**

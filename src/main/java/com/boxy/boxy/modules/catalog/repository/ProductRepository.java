@@ -19,8 +19,11 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     Optional<Product> findByCompanyIdAndSkuIgnoreCaseAndDeletedAtIsNull(Long companyId, String sku);
     Optional<Product> findByCompanyIdAndBarcodeAndDeletedAtIsNull(Long companyId, String barcode);
 
-    @Query("SELECT p FROM Product p WHERE p.company.id = :companyId AND p.deletedAt IS NULL AND " +
-           "(:search IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')) OR p.barcode LIKE CONCAT('%', :search, '%')) AND " +
+    @Query("SELECT p FROM Product p LEFT JOIN p.brand sb LEFT JOIN p.category sc " +
+           "WHERE p.company.id = :companyId AND p.deletedAt IS NULL AND " +
+           // Name, SKU, barcode, brand and category (LEFT JOINs keep products that have neither).
+           "(:search IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')) OR p.barcode LIKE CONCAT('%', :search, '%') " +
+           "  OR LOWER(sb.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(sc.name) LIKE LOWER(CONCAT('%', :search, '%'))) AND " +
            "(:categoryIds IS NULL OR p.category.id IN :categoryIds) AND " +
            "(:brandIds IS NULL OR p.brand.id IN :brandIds) AND " +
            "(:isActive IS NULL OR p.isActive = :isActive) AND " +
@@ -53,8 +56,12 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
      * by "has stock in this branch" and by a plain in/out-of-stock split on the total available.
      * {@code existence} is {@code null}, {@code "in-stock"} or {@code "out-of-stock"}.
      */
-    @Query("SELECT p FROM Product p WHERE p.company.id = :companyId AND p.deletedAt IS NULL AND p.isActive = true AND " +
-           "(:search IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')) OR p.barcode LIKE CONCAT('%', :search, '%')) AND " +
+    @Query("SELECT p FROM Product p LEFT JOIN p.brand sb LEFT JOIN p.category sc " +
+           "WHERE p.company.id = :companyId AND p.deletedAt IS NULL AND p.isActive = true AND " +
+           // The text search also matches the brand and the category name (LEFT JOINs: a product
+           // with neither must still be findable by name / SKU / barcode).
+           "(:search IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')) OR p.barcode LIKE CONCAT('%', :search, '%') " +
+           "  OR LOWER(sb.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(sc.name) LIKE LOWER(CONCAT('%', :search, '%'))) AND " +
            "(:categoryId IS NULL OR p.category.id = :categoryId) AND " +
            "(:brandId IS NULL OR p.brand.id = :brandId) AND " +
            "(:unitId IS NULL OR p.unit.id = :unitId) AND " +
