@@ -108,6 +108,17 @@ public class Invoice {
     @JoinColumn(name = "created_by", nullable = false)
     private User createdBy;
 
+    /** Why the sale was voided — required when voiding (null for sales voided before it was captured). */
+    @Column(name = "void_reason", length = 500)
+    private String voidReason;
+
+    @Column(name = "voided_at")
+    private Instant voidedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "voided_by")
+    private User voidedBy;
+
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<InvoiceItem> items = new ArrayList<>();

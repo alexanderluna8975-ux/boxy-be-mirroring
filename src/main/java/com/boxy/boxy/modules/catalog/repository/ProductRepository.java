@@ -47,6 +47,38 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             @Param("matchInTransit") boolean matchInTransit,
             Pageable pageable);
 
+    /**
+     * POS catalog page: the active products of a company, narrowed by the Step 1 filters. Kept apart
+     * from {@link #findAllFiltered} (the Products screen's query) because POS filters differ: by unit,
+     * by "has stock in this branch" and by a plain in/out-of-stock split on the total available.
+     * {@code existence} is {@code null}, {@code "in-stock"} or {@code "out-of-stock"}.
+     */
+    @Query("SELECT p FROM Product p WHERE p.company.id = :companyId AND p.deletedAt IS NULL AND p.isActive = true AND " +
+           "(:search IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :search, '%')) OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :search, '%')) OR p.barcode LIKE CONCAT('%', :search, '%')) AND " +
+           "(:categoryId IS NULL OR p.category.id = :categoryId) AND " +
+           "(:brandId IS NULL OR p.brand.id = :brandId) AND " +
+           "(:unitId IS NULL OR p.unit.id = :unitId) AND " +
+           "(:branchId IS NULL OR EXISTS (" +
+           "  SELECT 1 FROM StockLevel bsl WHERE bsl.product = p AND bsl.warehouse.branch.id = :branchId AND bsl.quantityAvailable > 0" +
+           ")) AND " +
+           "(:existence IS NULL OR " +
+           "  (:existence = 'in-stock' AND (SELECT COALESCE(SUM(e1.quantityAvailable), 0) FROM StockLevel e1 WHERE e1.product = p) > 0) OR " +
+           "  (:existence = 'out-of-stock' AND (SELECT COALESCE(SUM(e2.quantityAvailable), 0) FROM StockLevel e2 WHERE e2.product = p) <= 0))")
+    Page<Product> searchCatalog(
+            @Param("companyId") Long companyId,
+            @Param("search") String search,
+            @Param("categoryId") Long categoryId,
+            @Param("brandId") Long brandId,
+            @Param("unitId") Long unitId,
+            @Param("branchId") Long branchId,
+            @Param("existence") String existence,
+            Pageable pageable);
+
+    /** Active products whose SKU or barcode is one of {@code codes} (already trimmed and lower-cased). */
+    @Query("SELECT p FROM Product p WHERE p.company.id = :companyId AND p.deletedAt IS NULL AND p.isActive = true AND " +
+           "(LOWER(p.sku) IN :codes OR LOWER(p.barcode) IN :codes)")
+    List<Product> findActiveByCodes(@Param("companyId") Long companyId, @Param("codes") List<String> codes);
+
     List<Product> findTop10ByCompanyIdAndDeletedAtIsNullOrderByCreatedAtDesc(Long companyId);
     List<Product> findByCompanyIdAndDeletedAtIsNull(Long companyId);
     List<Product> findByCompanyIdAndIsActiveTrueAndDeletedAtIsNull(Long companyId);

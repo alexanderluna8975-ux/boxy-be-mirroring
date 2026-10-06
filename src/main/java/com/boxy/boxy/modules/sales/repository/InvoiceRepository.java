@@ -13,6 +13,7 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     Page<Invoice> findByBranchIdOrderByCreatedAtDesc(Long branchId, Pageable pageable);
     Page<Invoice> findByCompanyIdOrderByCreatedAtDesc(Long companyId, Pageable pageable);
     java.util.List<Invoice> findByCompanyId(Long companyId);
+    java.util.List<Invoice> findByCashierSessionId(Long cashierSessionId);
     long countByCompanyId(Long companyId);
     Optional<Invoice> findByIdempotencyKey(String idempotencyKey);
     Optional<Invoice> findByIdempotencyKeyAndCompanyId(String idempotencyKey, Long companyId);
