@@ -15,6 +15,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     java.util.List<Invoice> findByCompanyId(Long companyId);
     long countByCompanyId(Long companyId);
     Optional<Invoice> findByIdempotencyKey(String idempotencyKey);
+    Optional<Invoice> findByIdempotencyKeyAndCompanyId(String idempotencyKey, Long companyId);
+    Optional<Invoice> findByIdAndCompanyId(Long id, Long companyId);
     Optional<Invoice> findByBranchIdAndDocumentTypeAndSeriesAndNumber(Long branchId, String documentType, String series, String number);
     Optional<Invoice> findFirstBySalesOrderId(Long salesOrderId);
 }

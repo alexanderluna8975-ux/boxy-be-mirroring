@@ -67,6 +67,8 @@ class StockAdjustmentServiceTest {
     private AuditLogService auditLogService;
     @Mock
     private DocumentSequenceService documentSequenceService;
+    @Mock
+    private com.boxy.boxy.core.realtime.RealtimeEventPublisher realtimeEvents;
 
     @InjectMocks
     private StockAdjustmentService service;

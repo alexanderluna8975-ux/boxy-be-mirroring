@@ -1,5 +1,8 @@
 package com.boxy.boxy.modules.inventory.service;
 
+import com.boxy.boxy.core.realtime.RealtimeEventPublisher;
+import com.boxy.boxy.core.realtime.events.StockChange;
+import com.boxy.boxy.core.realtime.events.TransferEvent;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.InsufficientStockException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
@@ -37,6 +40,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -86,6 +90,7 @@ public class InventoryService {
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
     private final AuditLogService auditLogService;
+    private final RealtimeEventPublisher realtimeEvents;
     private final DocumentSequenceService documentSequenceService;
     private final PdfDocumentService pdfDocumentService;
 
@@ -206,6 +211,7 @@ public class InventoryService {
         }
 
         StockTransfer saved = stockTransferRepository.save(transfer);
+        publishTransferEvent(TransferEvent.Type.REQUESTED, saved, false);
         return toTransferDto(saved);
     }
 
@@ -323,6 +329,9 @@ public class InventoryService {
         }
 
         // Pass 2 — apply.
+        List<StockChange> sourceChanges = new ArrayList<>();
+        List<StockChange> destinationChanges = new ArrayList<>();
+        boolean hasLoss = false;
         for (StockTransferItem item : transfer.getItems()) {
             BigDecimal sent = item.getQuantityRequested();
             BigDecimal received = receivedByProduct.getOrDefault(item.getProduct().getId(), sent);
@@ -341,14 +350,20 @@ public class InventoryService {
             // to come out now, discovered only at receiving.
             BigDecimal overage = received.subtract(sent).max(BigDecimal.ZERO);
             if (overage.compareTo(BigDecimal.ZERO) > 0) {
-                sourceStock.setQuantityAvailable(sourceStock.getQuantityAvailable().subtract(overage));
+                BigDecimal sourceBefore = sourceStock.getQuantityAvailable();
+                sourceStock.setQuantityAvailable(sourceBefore.subtract(overage));
+                sourceChanges.add(new StockChange(item.getProduct().getId(), item.getProduct().getMinStockAlert(),
+                        sourceBefore, sourceStock.getQuantityAvailable()));
             }
             stockLevelRepository.save(sourceStock);
 
             // Credit destination with only what actually arrived.
             StockLevel destStock = stockLevelRepository.getOrCreateForUpdate(transfer.getDestinationWarehouse(), item.getProduct());
-            destStock.setQuantityAvailable(destStock.getQuantityAvailable().add(received));
+            BigDecimal destinationBefore = destStock.getQuantityAvailable();
+            destStock.setQuantityAvailable(destinationBefore.add(received));
             stockLevelRepository.save(destStock);
+            destinationChanges.add(new StockChange(item.getProduct().getId(), item.getProduct().getMinStockAlert(),
+                    destinationBefore, destStock.getQuantityAvailable()));
 
             item.setQuantityReceived(received);
 
@@ -368,6 +383,7 @@ public class InventoryService {
 
             BigDecimal shortage = sent.subtract(received).max(BigDecimal.ZERO);
             if (shortage.compareTo(BigDecimal.ZERO) > 0) {
+                hasLoss = true;
                 StockMovement lossMovement = StockMovement.builder()
                         .warehouse(transfer.getSourceWarehouse())
                         .product(item.getProduct())
@@ -408,6 +424,9 @@ public class InventoryService {
         StockTransfer saved = stockTransferRepository.save(transfer);
         auditLogService.record("Transferencia recibida", "Transferencia", String.valueOf(saved.getId()),
                 saved.getTransferNumber(), TransferStatus.IN_TRANSIT.name(), TransferStatus.RECEIVED.name());
+        realtimeEvents.stockChanged(saved.getDestinationWarehouse(), destinationChanges);
+        realtimeEvents.stockChanged(saved.getSourceWarehouse(), sourceChanges);
+        publishTransferEvent(TransferEvent.Type.RECEIVED, saved, hasLoss);
         return toTransferDto(saved);
     }
 
@@ -530,6 +549,7 @@ public class InventoryService {
             throw new BusinessException("INVALID_STATUS", "Only REQUESTED transfers can be approved.");
         }
 
+        List<StockChange> sourceChanges = new ArrayList<>();
         for (StockTransferItem item : t.getItems()) {
             StockLevel stock = stockLevelRepository.findForUpdate(t.getSourceWarehouse().getId(), item.getProduct().getId())
                     .orElseThrow(() -> new InsufficientStockException(item.getProduct().getSku(), item.getProduct().getName(), 0, item.getQuantityRequested().doubleValue()));
@@ -539,9 +559,12 @@ public class InventoryService {
                         stock.getQuantityAvailable().doubleValue(), item.getQuantityRequested().doubleValue());
             }
 
-            stock.setQuantityAvailable(stock.getQuantityAvailable().subtract(item.getQuantityRequested()));
+            BigDecimal availableBefore = stock.getQuantityAvailable();
+            stock.setQuantityAvailable(availableBefore.subtract(item.getQuantityRequested()));
             stock.setQuantityInTransit(stock.getQuantityInTransit().add(item.getQuantityRequested()));
             stockLevelRepository.save(stock);
+            sourceChanges.add(new StockChange(item.getProduct().getId(), item.getProduct().getMinStockAlert(),
+                    availableBefore, stock.getQuantityAvailable()));
 
             StockMovement movement = StockMovement.builder()
                     .warehouse(t.getSourceWarehouse())
@@ -569,6 +592,8 @@ public class InventoryService {
         StockTransfer saved = stockTransferRepository.save(t);
         auditLogService.record("Transferencia aprobada y enviada", "Transferencia", String.valueOf(saved.getId()),
                 saved.getTransferNumber(), TransferStatus.REQUESTED.name(), TransferStatus.IN_TRANSIT.name());
+        realtimeEvents.stockChanged(saved.getSourceWarehouse(), sourceChanges);
+        publishTransferEvent(TransferEvent.Type.DISPATCHED, saved, false);
         return toTransferDto(saved);
     }
 
@@ -584,7 +609,17 @@ public class InventoryService {
         StockTransfer saved = stockTransferRepository.save(t);
         auditLogService.record("Transferencia rechazada", "Transferencia", String.valueOf(saved.getId()),
                 saved.getTransferNumber(), previousStatus.name(), TransferStatus.REJECTED.name());
+        publishTransferEvent(TransferEvent.Type.REJECTED, saved, false);
         return toTransferDto(saved);
+    }
+
+    /** Tells connected screens a transfer changed state — see {@code RealtimeEventPublisher}. */
+    private void publishTransferEvent(TransferEvent.Type type, StockTransfer transfer, boolean hasLoss) {
+        realtimeEvents.transfer(type, transfer.getCompany().getId(), transfer.getId(), transfer.getTransferNumber(),
+                transfer.getSourceWarehouse().getBranch().getId(),
+                transfer.getDestinationWarehouse().getBranch().getId(),
+                hasLoss,
+                transfer.getRequestedBy() != null ? transfer.getRequestedBy().getId() : null);
     }
 
     /** 404s (not 403) on a transfer belonging to another company — same treatment as "doesn't exist". */

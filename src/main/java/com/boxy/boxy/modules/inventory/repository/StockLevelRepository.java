@@ -28,6 +28,9 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
     @Query("SELECT s FROM StockLevel s WHERE s.warehouse.branch.id = :branchId AND s.quantityAvailable <= s.product.minStockAlert")
     List<StockLevel> findLowStockByBranch(@Param("branchId") Long branchId);
 
+    @Query("SELECT COUNT(s) FROM StockLevel s WHERE s.warehouse.branch.company.id = :companyId")
+    long countByCompanyId(@Param("companyId") Long companyId);
+
     @Query("SELECT COALESCE(SUM(s.quantityAvailable), 0) FROM StockLevel s WHERE s.product.id = :productId")
     BigDecimal getTotalAvailableStockByProductId(@Param("productId") Long productId);
 
@@ -37,6 +40,17 @@ public interface StockLevelRepository extends JpaRepository<StockLevel, Long> {
             "GROUP BY s.warehouse.branch.id, s.warehouse.branch.code, s.warehouse.branch.name " +
             "HAVING COALESCE(SUM(s.quantityAvailable), 0) > 0")
     List<Object[]> getBranchStockByProductId(@Param("productId") Long productId);
+
+    /** [productId, SUM(available)] across every warehouse — one grouped query for a whole batch of products. */
+    @Query("SELECT s.product.id, COALESCE(SUM(s.quantityAvailable), 0) FROM StockLevel s " +
+            "WHERE s.product.id IN :productIds GROUP BY s.product.id")
+    List<Object[]> sumAvailableByProductIds(@Param("productIds") java.util.Collection<Long> productIds);
+
+    /** [productId, SUM(available)] restricted to one branch's warehouses. */
+    @Query("SELECT s.product.id, COALESCE(SUM(s.quantityAvailable), 0) FROM StockLevel s " +
+            "WHERE s.product.id IN :productIds AND s.warehouse.branch.id = :branchId GROUP BY s.product.id")
+    List<Object[]> sumAvailableByProductIdsInBranch(@Param("productIds") java.util.Collection<Long> productIds,
+                                                    @Param("branchId") Long branchId);
 
     @Query("SELECT COALESCE(SUM(s.quantityInTransit), 0) FROM StockLevel s WHERE s.product.id = :productId")
     BigDecimal getTotalInTransitStockByProductId(@Param("productId") Long productId);

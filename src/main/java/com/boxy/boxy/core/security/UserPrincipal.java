@@ -7,8 +7,10 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 @Getter
 @Builder
@@ -22,14 +24,27 @@ public class UserPrincipal implements UserDetails {
     private final String fullName;
     private final Long activeBranchId;
     private final String status;
+    private final Instant lockedUntil;
     private final Collection<? extends GrantedAuthority> authorities;
+    /** Every branch this user has a role in (not just the active one) — what the real-time layer
+     *  checks before letting a WebSocket client subscribe to a branch-scoped topic. */
+    private final Set<Long> assignedBranchIds;
 
     public static UserPrincipal create(Long id, Long companyId, String username, String email, String password, String fullName, Long activeBranchId, String status, List<String> rolesAndPermissions) {
+        return create(id, companyId, username, email, password, fullName, activeBranchId, status, null, rolesAndPermissions);
+    }
+
+    public static UserPrincipal create(Long id, Long companyId, String username, String email, String password, String fullName, Long activeBranchId, String status, Instant lockedUntil, List<String> rolesAndPermissions) {
+        return create(id, companyId, username, email, password, fullName, activeBranchId, status, lockedUntil, rolesAndPermissions, Set.of());
+    }
+
+    public static UserPrincipal create(Long id, Long companyId, String username, String email, String password, String fullName, Long activeBranchId, String status, Instant lockedUntil, List<String> rolesAndPermissions, Set<Long> assignedBranchIds) {
         List<SimpleGrantedAuthority> authorities = rolesAndPermissions.stream()
                 .map(SimpleGrantedAuthority::new)
                 .toList();
 
         return UserPrincipal.builder()
+                .assignedBranchIds(Set.copyOf(assignedBranchIds))
                 .id(id)
                 .companyId(companyId)
                 .username(username)
@@ -38,6 +53,7 @@ public class UserPrincipal implements UserDetails {
                 .fullName(fullName)
                 .activeBranchId(activeBranchId)
                 .status(status)
+                .lockedUntil(lockedUntil)
                 .authorities(authorities)
                 .build();
     }
@@ -49,7 +65,7 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return true;
+        return lockedUntil == null || lockedUntil.isBefore(Instant.now());
     }
 
     @Override

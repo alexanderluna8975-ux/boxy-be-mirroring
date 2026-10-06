@@ -3,6 +3,8 @@ package com.boxy.boxy.modules.inventory.service;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.InsufficientStockException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
+import com.boxy.boxy.core.realtime.events.StockChange;
+import com.boxy.boxy.core.realtime.events.TransferEvent;
 import com.boxy.boxy.core.security.SecurityUtils;
 import com.boxy.boxy.core.security.UserPrincipal;
 import com.boxy.boxy.core.sequence.DocumentSequenceService;
@@ -84,6 +86,8 @@ class InventoryServiceTest {
     private AuditLogService auditLogService;
     @Mock
     private DocumentSequenceService documentSequenceService;
+    @Mock
+    private com.boxy.boxy.core.realtime.RealtimeEventPublisher realtimeEvents;
 
     @InjectMocks
     private InventoryService inventoryService;
@@ -551,6 +555,99 @@ class InventoryServiceTest {
                 .hasMessageContaining("already in transit");
 
         verify(stockTransferRepository, times(0)).save(eq(transfer));
+    }
+
+    // ---- real-time events (see RealtimeEventPublisher) ----
+
+    @SuppressWarnings("unchecked")
+    private List<StockChange> capturedStockChanges(Warehouse warehouse) {
+        ArgumentCaptor<List<StockChange>> captor = ArgumentCaptor.forClass(List.class);
+        verify(realtimeEvents).stockChanged(eq(warehouse), captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    void createTransfer_publishesARequestedEvent() {
+        CreateStockTransferRequest request = transferRequest(1L, 2L, BigDecimal.TEN);
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
+        when(warehouseRepository.findByIdAndBranchCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(source));
+        when(warehouseRepository.findByIdAndBranchCompanyIdAndDeletedAtIsNull(2L, COMPANY_ID)).thenReturn(Optional.of(destination));
+        when(userRepository.findByIdAndDeletedAtIsNull(1L)).thenReturn(Optional.of(user));
+        when(productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(1L, COMPANY_ID)).thenReturn(Optional.of(product));
+        when(documentSequenceService.nextFolio(COMPANY_ID, DocumentType.TRANSFER)).thenReturn("TRF-00007");
+        when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        inventoryService.createTransfer(request);
+
+        verify(realtimeEvents).transfer(TransferEvent.Type.REQUESTED, COMPANY_ID, null, "TRF-00007", 1L, 1L, false, 1L);
+    }
+
+    @Test
+    void approveTransfer_publishesTheSourceStockDropAndADispatchedEvent() {
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        product.setMinStockAlert(BigDecimal.valueOf(5));
+        StockLevel stock = StockLevel.builder().id(1L).warehouse(source).product(product)
+                .quantityAvailable(BigDecimal.valueOf(50)).quantityReserved(BigDecimal.ZERO)
+                .quantityInTransit(BigDecimal.ZERO).build();
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
+        when(stockLevelRepository.findForUpdate(1L, 1L)).thenReturn(Optional.of(stock));
+        when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        inventoryService.approveTransfer(10L);
+
+        StockChange change = capturedStockChanges(source).get(0);
+        assertThat(change.productId()).isEqualTo(1L);
+        assertThat(change.availableBefore()).isEqualByComparingTo("50");
+        assertThat(change.availableAfter()).isEqualByComparingTo("40");
+        assertThat(change.minStock()).isEqualByComparingTo("5");
+        verify(realtimeEvents).transfer(TransferEvent.Type.DISPATCHED, COMPANY_ID, 10L, "TRF-TEST", 1L, 1L, false, 1L);
+    }
+
+    @Test
+    void approveTransfer_publishesNothingWhenThereIsNotEnoughStock() {
+        StockTransfer requested = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        StockLevel stock = StockLevel.builder().id(1L).warehouse(source).product(product)
+                .quantityAvailable(BigDecimal.valueOf(3)).quantityReserved(BigDecimal.ZERO)
+                .quantityInTransit(BigDecimal.ZERO).build();
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(requested));
+        when(stockLevelRepository.findForUpdate(1L, 1L)).thenReturn(Optional.of(stock));
+
+        assertThatThrownBy(() -> inventoryService.approveTransfer(10L)).isInstanceOf(InsufficientStockException.class);
+
+        org.mockito.Mockito.verifyNoInteractions(realtimeEvents);
+    }
+
+    @Test
+    void receiveTransfer_withAShortage_publishesTheDestinationStockAndALossFlaggedEvent() {
+        StockTransfer inTransit = transferInStatus(TransferStatus.IN_TRANSIT, BigDecimal.TEN);
+        StockLevel sourceStock = StockLevel.builder().id(1L).warehouse(source).product(product)
+                .quantityAvailable(BigDecimal.valueOf(40)).quantityReserved(BigDecimal.ZERO)
+                .quantityInTransit(BigDecimal.TEN).build();
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(inTransit));
+        when(stockLevelRepository.findForUpdate(1L, 1L)).thenReturn(Optional.of(sourceStock));
+        when(stockLevelRepository.findForUpdate(2L, 1L)).thenReturn(Optional.empty());
+        when(stockLevelRepository.saveAndFlush(any(StockLevel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(stockLevelRepository.save(any(StockLevel.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        inventoryService.receiveTransfer(10L, shortageRequest(BigDecimal.valueOf(7), "Caja dañada en tránsito."));
+
+        StockChange change = capturedStockChanges(destination).get(0);
+        assertThat(change.availableBefore()).isEqualByComparingTo("0");
+        assertThat(change.availableAfter()).isEqualByComparingTo("7");
+        verify(realtimeEvents).transfer(TransferEvent.Type.RECEIVED, COMPANY_ID, 10L, "TRF-TEST", 1L, 1L, true, 1L);
+    }
+
+    @Test
+    void rejectTransfer_publishesARejectedEvent() {
+        StockTransfer transfer = transferInStatus(TransferStatus.REQUESTED, BigDecimal.TEN);
+        when(stockTransferRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(transfer));
+        when(stockTransferRepository.save(any(StockTransfer.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        inventoryService.rejectTransfer(10L);
+
+        verify(realtimeEvents).transfer(TransferEvent.Type.REJECTED, COMPANY_ID, 10L, "TRF-TEST", 1L, 1L, false, 1L);
+        verify(realtimeEvents, never()).stockChanged(any(), any());
     }
 
     // ---- multi-tenant isolation ----

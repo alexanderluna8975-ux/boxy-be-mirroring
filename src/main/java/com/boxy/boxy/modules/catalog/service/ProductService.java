@@ -1,5 +1,7 @@
 package com.boxy.boxy.modules.catalog.service;
 
+import com.boxy.boxy.core.realtime.RealtimeEventPublisher;
+import com.boxy.boxy.core.realtime.events.StockChange;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
 import com.boxy.boxy.core.security.SecurityUtils;
@@ -50,6 +52,7 @@ public class ProductService {
     private final WarehouseRepository warehouseRepository;
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
+    private final RealtimeEventPublisher realtimeEvents;
     private final ProductCostHistoryRepository productCostHistoryRepository;
 
     @Transactional(readOnly = true)
@@ -61,7 +64,7 @@ public class ProductService {
             List<Long> warehouseIds,
             List<String> stockStatuses,
             Pageable pageable) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
 
         boolean stockStatusFilterActive = stockStatuses != null && !stockStatuses.isEmpty();
         boolean matchInStock = stockStatusFilterActive && stockStatuses.contains("in-stock");
@@ -82,15 +85,13 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public ProductDto getProductById(Long id) {
-        Product product = productRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        Product product = findOwnedProduct(id);
         return toDto(product);
     }
 
     @Transactional(readOnly = true)
     public ProductMetricsDto getMetrics(Long id) {
-        Product product = productRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        Product product = findOwnedProduct(id);
 
         BigDecimal availableStock = stockLevelRepository.getTotalAvailableStockByProductId(id);
         BigDecimal inTransitStock = stockLevelRepository.getTotalInTransitStockByProductId(id);
@@ -118,6 +119,7 @@ public class ProductService {
      *  {@code PurchasingService#receiveGoods}, which is what writes these. */
     @Transactional(readOnly = true)
     public Page<ProductCostHistoryDto> getCostHistory(Long id, Pageable pageable) {
+        findOwnedProduct(id);
         return productCostHistoryRepository.findByProductIdOrderByCreatedAtDesc(id, pageable)
                 .map(this::toCostHistoryDto);
     }
@@ -137,7 +139,7 @@ public class ProductService {
 
     @Transactional
     public ProductDto createProduct(CreateProductRequest request) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
@@ -145,23 +147,15 @@ public class ProductService {
             throw new BusinessException("SKU_EXISTS", "A product with SKU '" + request.getSku() + "' already exists.");
         }
 
-        UnitOfMeasure unit = unitOfMeasureRepository.findByIdAndDeletedAtIsNull(request.getUnitId())
-                .orElseThrow(() -> new ResourceNotFoundException("UnitOfMeasure", request.getUnitId()));
+        UnitOfMeasure unit = findOwnedUnit(request.getUnitId());
 
-        Category category = null;
-        if (request.getCategoryId() != null) {
-            category = categoryRepository.findByIdAndDeletedAtIsNull(request.getCategoryId()).orElse(null);
-        }
+        Category category = request.getCategoryId() != null ? findOwnedCategory(request.getCategoryId()) : null;
+        Brand brand = request.getBrandId() != null ? findOwnedBrand(request.getBrandId()) : null;
 
-        Brand brand = null;
-        if (request.getBrandId() != null) {
-            brand = brandRepository.findByIdAndDeletedAtIsNull(request.getBrandId()).orElse(null);
-        }
-
-        Tax tax = null;
-        if (request.getTaxId() != null) {
-            tax = taxRepository.findById(request.getTaxId()).orElse(null);
-        }
+        Tax tax = request.getTaxId() != null
+                ? taxRepository.findByIdAndCompanyIdAndDeletedAtIsNull(request.getTaxId(), companyId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Tax", request.getTaxId()))
+                : null;
 
         Product product = Product.builder()
                 .company(company)
@@ -179,11 +173,13 @@ public class ProductService {
                 .imageUrl(request.getImageUrl())
                 .hasVariants(false)
                 .isActive(true)
-                .createdBy(SecurityUtils.getCurrentUserId())
+                .createdBy(SecurityUtils.requireCurrentUserId())
                 .build();
 
         Product saved = productRepository.save(product);
         seedInitialStock(saved, request, companyId);
+        auditLogService.record("Producto creado", "Producto", String.valueOf(saved.getId()),
+                saved.getName(), null, null);
         return toDto(saved);
     }
 
@@ -205,8 +201,10 @@ public class ProductService {
                 .quantityAvailable(request.getInitialStock())
                 .build();
         stockLevelRepository.save(stockLevel);
+        realtimeEvents.stockChanged(warehouse, java.util.List.of(new StockChange(
+                product.getId(), product.getMinStockAlert(), BigDecimal.ZERO, request.getInitialStock())));
 
-        User currentUser = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.getCurrentUserId()).orElse(null);
+        User currentUser = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.requireCurrentUserId()).orElse(null);
 
         StockMovement movement = StockMovement.builder()
                 .warehouse(warehouse)
@@ -230,7 +228,7 @@ public class ProductService {
                     .orElseThrow(() -> new ResourceNotFoundException("Warehouse", requestedWarehouseId));
         }
 
-        Long branchId = SecurityUtils.getCurrentBranchId();
+        Long branchId = SecurityUtils.requireCurrentBranchId();
         return warehouseRepository.findByBranchIdAndIsDefaultTrueAndDeletedAtIsNull(branchId)
                 .or(() -> warehouseRepository.findByBranchIdAndDeletedAtIsNull(branchId).stream().findFirst())
                 .or(() -> warehouseRepository.findByBranchCompanyIdAndDeletedAtIsNull(companyId).stream().findFirst())
@@ -239,23 +237,16 @@ public class ProductService {
 
     @Transactional
     public ProductDto updateProduct(Long id, CreateProductRequest request) {
-        Product p = productRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        Product p = findOwnedProduct(id);
 
         if (request.getCategoryId() != null) {
-            Category cat = categoryRepository.findByIdAndDeletedAtIsNull(request.getCategoryId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Category", request.getCategoryId()));
-            p.setCategory(cat);
+            p.setCategory(findOwnedCategory(request.getCategoryId()));
         }
         if (request.getBrandId() != null) {
-            Brand brand = brandRepository.findByIdAndDeletedAtIsNull(request.getBrandId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Brand", request.getBrandId()));
-            p.setBrand(brand);
+            p.setBrand(findOwnedBrand(request.getBrandId()));
         }
         if (request.getUnitOfMeasureId() != null) {
-            UnitOfMeasure uom = unitOfMeasureRepository.findByIdAndDeletedAtIsNull(request.getUnitOfMeasureId())
-                    .orElseThrow(() -> new ResourceNotFoundException("UnitOfMeasure", request.getUnitOfMeasureId()));
-            p.setUnitOfMeasure(uom);
+            p.setUnitOfMeasure(findOwnedUnit(request.getUnitOfMeasureId()));
         }
 
         if (request.getSku() != null) p.setSku(request.getSku().trim().toUpperCase());
@@ -267,20 +258,32 @@ public class ProductService {
         if (request.getMinStockAlert() != null) p.setMinStockAlert(request.getMinStockAlert());
         if (request.getImageUrl() != null) p.setImageUrl(request.getImageUrl());
 
-        return toDto(productRepository.save(p));
+        Product saved = productRepository.save(p);
+        auditLogService.record("Producto actualizado", "Producto", String.valueOf(saved.getId()),
+                saved.getName(), null, null);
+        return toDto(saved);
     }
 
     @Transactional
     public ProductDto archiveProduct(Long id) {
-        Product p = productRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        Product p = findOwnedProduct(id);
         p.setIsActive(!Boolean.TRUE.equals(p.getIsActive()));
-        return toDto(productRepository.save(p));
+        Product saved = productRepository.save(p);
+        auditLogService.record(Boolean.TRUE.equals(saved.getIsActive()) ? "Producto reactivado" : "Producto archivado",
+                "Producto", String.valueOf(saved.getId()), saved.getName(), null, null);
+        return toDto(saved);
+    }
+
+    /** 404s (not 403) on a product belonging to another company — same treatment as "doesn't exist". */
+    private Product findOwnedProduct(Long id) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
     }
 
     @Transactional(readOnly = true)
     public boolean isUnique(String field, String value, Long excludeId) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         if ("sku".equalsIgnoreCase(field)) {
             return productRepository.findByCompanyIdAndSkuIgnoreCaseAndDeletedAtIsNull(companyId, value)
                     .map(p -> p.getId().equals(excludeId))

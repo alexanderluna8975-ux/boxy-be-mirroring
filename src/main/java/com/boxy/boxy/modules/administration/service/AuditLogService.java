@@ -1,6 +1,8 @@
 package com.boxy.boxy.modules.administration.service;
 
+import com.boxy.boxy.core.realtime.events.AuditRecordedEvent;
 import com.boxy.boxy.core.security.SecurityUtils;
+import org.springframework.context.ApplicationEventPublisher;
 import com.boxy.boxy.core.security.UserPrincipal;
 import com.boxy.boxy.core.web.DateFilterParser;
 import com.boxy.boxy.modules.administration.dto.AuditLogDto;
@@ -41,6 +43,7 @@ public class AuditLogService {
     private final AuditLogRepository auditLogRepository;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * @param action       short past-tense description, e.g. "Usuario creado" — matches the
@@ -56,9 +59,34 @@ public class AuditLogService {
     @Transactional
     public void record(String action, String entityType, String resourceId, String entityLabel,
                         String previousValue, String newValue) {
+        Long companyId;
         try {
-            Long companyId = SecurityUtils.requireCurrentCompanyId();
-            Long userId = SecurityUtils.getCurrentUser().map(UserPrincipal::getId).orElse(null);
+            companyId = SecurityUtils.requireCurrentCompanyId();
+        } catch (Exception e) {
+            log.warn("Failed to record audit log (no authenticated company in context): action='{}' entityType='{}' resourceId='{}'",
+                    action, entityType, resourceId, e);
+            return;
+        }
+        Long userId = SecurityUtils.getCurrentUser().map(UserPrincipal::getId).orElse(null);
+        recordForCompany(companyId, userId, action, entityType, resourceId, entityLabel, previousValue, newValue);
+    }
+
+    /**
+     * Same as {@link #record}, but takes {@code companyId}/{@code userId} explicitly instead of
+     * reading them off the current {@code SecurityContext} — needed for the handful of events
+     * that happen *around* authentication itself (a login attempt, a refresh-token reuse
+     * detection), where there may be no authenticated principal in context yet, or the one
+     * request touches a different user than the caller (an admin resetting someone else's
+     * password). {@code companyId} is still required — an event with nothing to attribute it to
+     * isn't logged (e.g. a login attempt for a username that doesn't exist at all).
+     */
+    @Transactional
+    public void recordForCompany(Long companyId, Long userId, String action, String entityType, String resourceId,
+                                  String entityLabel, String previousValue, String newValue) {
+        if (companyId == null) {
+            return;
+        }
+        try {
             HttpServletRequest request = currentRequest();
 
             Map<String, String> details = new LinkedHashMap<>();
@@ -82,6 +110,8 @@ public class AuditLogService {
                     .build();
 
             auditLogRepository.save(entry);
+            // Lets NotificationRules tell the company's admins (delivered only after this commits).
+            eventPublisher.publishEvent(new AuditRecordedEvent(companyId, userId, action, entityType, resourceId, entityLabel));
         } catch (Exception e) {
             log.warn("Failed to record audit log: action='{}' entityType='{}' resourceId='{}'",
                     action, entityType, resourceId, e);
@@ -162,12 +192,10 @@ public class AuditLogService {
         }
     }
 
-    /** Honors a reverse proxy's `X-Forwarded-For` (first hop) before falling back to the socket address. */
+    /** `server.forward-headers-strategy: framework` (application.yml) already rewrites
+     *  {@code getRemoteAddr()} from the platform edge proxy's `X-Forwarded-For`, at the servlet
+     *  level — reading the header again here would let a caller spoof it directly. */
     private String clientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor.split(",")[0].trim();
-        }
         return request.getRemoteAddr();
     }
 

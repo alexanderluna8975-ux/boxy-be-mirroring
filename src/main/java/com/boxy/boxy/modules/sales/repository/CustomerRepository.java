@@ -16,7 +16,9 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
     List<Customer> findByCompanyIdAndDeletedAtIsNull(Long companyId);
     Page<Customer> findByCompanyIdAndDeletedAtIsNull(Long companyId, Pageable pageable);
     Optional<Customer> findByIdAndDeletedAtIsNull(Long id);
+    Optional<Customer> findByIdAndCompanyIdAndDeletedAtIsNull(Long id, Long companyId);
     Optional<Customer> findByCompanyIdAndDocumentNumberAndDeletedAtIsNull(Long companyId, String documentNumber);
+    long countByCompanyIdAndDeletedAtIsNull(Long companyId);
 
     @Query("SELECT c FROM Customer c WHERE c.company.id = :companyId AND c.deletedAt IS NULL " +
            "AND (:search IS NULL OR LOWER(c.name) LIKE LOWER(CONCAT('%', :search, '%')) " +

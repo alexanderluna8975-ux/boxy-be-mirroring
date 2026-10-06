@@ -14,6 +14,7 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
     java.util.List<SalesOrder> findByCompanyId(Long companyId);
     long countByCompanyId(Long companyId);
     Optional<SalesOrder> findByOrderNumber(String orderNumber);
+    Optional<SalesOrder> findByIdAndCompanyId(Long id, Long companyId);
     Page<SalesOrder> findAllByOrderByCreatedAtDesc(Pageable pageable);
     Page<SalesOrder> findByOrderTypeOrderByCreatedAtDesc(String orderType, Pageable pageable);
 }

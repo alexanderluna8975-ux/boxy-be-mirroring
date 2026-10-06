@@ -1,6 +1,8 @@
 package com.boxy.boxy.modules.dashboard.service;
 
+import com.boxy.boxy.core.exception.ResourceNotFoundException;
 import com.boxy.boxy.core.security.SecurityUtils;
+import com.boxy.boxy.modules.administration.repository.BranchRepository;
 import com.boxy.boxy.modules.catalog.repository.ProductRepository;
 import com.boxy.boxy.modules.dashboard.dto.DashboardSummaryDto;
 import com.boxy.boxy.modules.inventory.entity.StockLevel;
@@ -24,13 +26,20 @@ public class DashboardService {
     private final CustomerRepository customerRepository;
     private final InvoiceRepository invoiceRepository;
     private final StockLevelRepository stockLevelRepository;
+    private final BranchRepository branchRepository;
 
     @Transactional(readOnly = true)
     public DashboardSummaryDto getSummary(Long branchId) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
 
-        long productCount = productRepository.count();
-        long customerCount = customerRepository.count();
+        long productCount = productRepository.countByCompanyIdAndDeletedAtIsNull(companyId);
+        long customerCount = customerRepository.countByCompanyIdAndDeletedAtIsNull(companyId);
+
+        if (branchId != null) {
+            branchRepository.findByIdAndDeletedAtIsNull(branchId)
+                    .filter(b -> b.getCompany().getId().equals(companyId))
+                    .orElseThrow(() -> new ResourceNotFoundException("Branch", branchId));
+        }
 
         List<Invoice> recentInvoices;
         if (branchId != null) {

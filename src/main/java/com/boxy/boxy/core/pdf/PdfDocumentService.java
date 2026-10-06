@@ -11,8 +11,10 @@ import org.w3c.dom.Document;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.URI;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Renders a printable document (Cotización, Nota de Venta, Nota de Transferencia, Orden de
@@ -29,6 +31,13 @@ import java.util.Map;
 public class PdfDocumentService {
 
     private final SpringTemplateEngine templateEngine;
+
+    /** Only host these PDF templates are ever allowed to fetch an image from — `company.logoUrl`
+     *  (validated on write too, see {@code CompanyService}) is the only user-suppliable URL that
+     *  reaches this renderer, and its only legitimate source is a Cloudinary-hosted upload. Without
+     *  this, a `logoUrl` pointed at an internal address (e.g. a cloud metadata endpoint) would have
+     *  this server itself make that request the moment the PDF renders — a classic SSRF-via-image. */
+    private static final Set<String> ALLOWED_EXTERNAL_IMAGE_HOSTS = Set.of("res.cloudinary.com");
 
     /** {@code templateName} is the file under {@code templates/pdf/}, without the {@code .html}
      *  suffix — e.g. {@code "quotation"} for {@code templates/pdf/quotation.html}. */
@@ -50,6 +59,7 @@ public class PdfDocumentService {
         try {
             PdfRendererBuilder builder = new PdfRendererBuilder();
             builder.useFastMode();
+            builder.useUriResolver(this::resolveAllowedImageUri);
             builder.withW3cDocument(w3cDocument, "");
             builder.toStream(output);
             builder.run();
@@ -57,5 +67,19 @@ public class PdfDocumentService {
             throw new IllegalStateException("Failed to render PDF for template '" + templateName + "'", e);
         }
         return output.toByteArray();
+    }
+
+    /** Refuses to resolve (returns {@code null}, which OpenHTMLtoPDF treats as "skip this image"
+     *  rather than an error) any URI whose host isn't on {@link #ALLOWED_EXTERNAL_IMAGE_HOSTS}. */
+    private String resolveAllowedImageUri(String baseUri, String uri) {
+        try {
+            String host = URI.create(uri).getHost();
+            if (host != null && ALLOWED_EXTERNAL_IMAGE_HOSTS.contains(host.toLowerCase(Locale.ROOT))) {
+                return uri;
+            }
+        } catch (IllegalArgumentException ignored) {
+            // malformed URI — fall through to refusing it below
+        }
+        return null;
     }
 }

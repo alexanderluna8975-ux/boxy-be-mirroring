@@ -1,5 +1,8 @@
 package com.boxy.boxy.modules.sales.service;
 
+import com.boxy.boxy.core.realtime.RealtimeEventPublisher;
+import com.boxy.boxy.core.realtime.events.SaleEvent;
+import com.boxy.boxy.core.realtime.events.StockChange;
 import com.boxy.boxy.core.exception.BusinessException;
 import com.boxy.boxy.core.exception.InsufficientStockException;
 import com.boxy.boxy.core.exception.ResourceNotFoundException;
@@ -17,6 +20,7 @@ import com.boxy.boxy.modules.administration.repository.BranchRepository;
 import com.boxy.boxy.modules.administration.repository.CompanyRepository;
 import com.boxy.boxy.modules.administration.repository.UserRepository;
 import com.boxy.boxy.modules.administration.repository.WarehouseRepository;
+import com.boxy.boxy.modules.administration.service.AuditLogService;
 import com.boxy.boxy.modules.catalog.entity.Product;
 import com.boxy.boxy.modules.catalog.repository.ProductRepository;
 import com.boxy.boxy.modules.inventory.entity.StockLevel;
@@ -64,6 +68,8 @@ public class SalesService {
     private final PaymentRepository paymentRepository;
     private final DocumentSequenceService documentSequenceService;
     private final PdfDocumentService pdfDocumentService;
+    private final AuditLogService auditLogService;
+    private final RealtimeEventPublisher realtimeEvents;
 
     /** Bolivia has one fixed offset (UTC-4, no DST) — same zone used for every generated PDF's dates. */
     private static final DateTimeFormatter PDF_DATE = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm").withZone(ZoneId.of("America/La_Paz"));
@@ -72,7 +78,7 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public List<CustomerDto> getAllCustomers() {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         return customerRepository.findByCompanyIdAndDeletedAtIsNull(companyId).stream()
                 .map(this::toCustomerDto)
                 .toList();
@@ -80,7 +86,7 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public Page<CustomerDto> getCustomersPaged(String search, String status, Pageable pageable) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Boolean isActive = "active".equalsIgnoreCase(status) ? Boolean.TRUE
                 : "inactive".equalsIgnoreCase(status) ? Boolean.FALSE
                 : null;
@@ -91,14 +97,12 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public CustomerDto getCustomerById(Long id) {
-        Customer c = customerRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer", id));
-        return toCustomerDto(c);
+        return toCustomerDto(findOwnedCustomer(id));
     }
 
     @Transactional
     public CustomerDto createCustomer(CreateCustomerRequest request) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
@@ -126,8 +130,7 @@ public class SalesService {
 
     @Transactional
     public CustomerDto updateCustomer(Long id, CreateCustomerRequest request) {
-        Customer c = customerRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer", id));
+        Customer c = findOwnedCustomer(id);
 
         if (request.getName() != null) c.setName(request.getName().trim());
         if (request.getDocumentNumber() != null) c.setDocumentNumber(request.getDocumentNumber().trim());
@@ -141,15 +144,21 @@ public class SalesService {
 
     @Transactional
     public CustomerDto archiveCustomer(Long id) {
-        Customer c = customerRepository.findByIdAndDeletedAtIsNull(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Customer", id));
+        Customer c = findOwnedCustomer(id);
         c.setIsActive(false);
         return toCustomerDto(customerRepository.save(c));
     }
 
+    /** 404s (not 403) on a customer belonging to another company — same treatment as "doesn't exist". */
+    private Customer findOwnedCustomer(Long id) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Customer", id));
+    }
+
     @Transactional(readOnly = true)
     public boolean checkCustomerUnique(String field, String value, Long excludeId) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Optional<Customer> existing = customerRepository.findByCompanyIdAndDocumentNumberAndDeletedAtIsNull(companyId, value);
         if (existing.isEmpty()) {
             return true;
@@ -159,7 +168,7 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public List<CatalogItemDto> searchCatalog(String term) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         // Was capped at 50, then 500 — POS loads this once and filters/searches client-side as the
         // cashier types (pos-page.component.ts), so any catalog bigger than the page size silently
         // lost products past it (findable only by an exact barcode scan, a separate query). A real
@@ -172,7 +181,7 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public Optional<CatalogItemDto> findCatalogByBarcode(String barcode) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         return productRepository.findByCompanyIdAndBarcodeAndDeletedAtIsNull(companyId, barcode)
                 .map(this::toCatalogItemDto);
     }
@@ -220,28 +229,27 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public QuotationDto getQuotationById(Long id) {
-        SalesOrder so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Quotation", id));
-        return toQuotationDto(so);
+        return toQuotationDto(findOwnedQuotation(id));
     }
 
     @Transactional
     public QuotationDto createQuotation(CreateQuotationRequest request) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
-        Long branchId = request.getBranchId() != null ? request.getBranchId() : 1L;
+        Long branchId = request.getBranchId() != null ? request.getBranchId() : SecurityUtils.requireCurrentBranchId();
         Branch branch = branchRepository.findByIdAndDeletedAtIsNull(branchId)
-                .orElseGet(() -> branchRepository.findAll().stream().findFirst().orElseThrow());
+                .filter(b -> b.getCompany().getId().equals(companyId))
+                .orElseThrow(() -> new ResourceNotFoundException("Branch", branchId));
 
         Customer customer = (request.getCustomerId() != null
-                ? customerRepository.findByIdAndDeletedAtIsNull(request.getCustomerId())
+                ? customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(request.getCustomerId(), companyId)
                 : Optional.<Customer>empty())
                 .orElseGet(() -> getOrCreateDefaultCustomer(company));
 
-        User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.getCurrentUserId())
-                .orElseGet(() -> userRepository.findAll().stream().findFirst().orElseThrow());
+        User user = userRepository.findByIdAndDeletedAtIsNull(SecurityUtils.requireCurrentUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("User", SecurityUtils.requireCurrentUserId()));
 
         String orderNumber = documentSequenceService.nextFolio(companyId, DocumentType.QUOTATION);
 
@@ -263,8 +271,7 @@ public class SalesService {
 
         if (request.getLines() != null) {
             for (var line : request.getLines()) {
-                Product product = productRepository.findByIdAndDeletedAtIsNull(line.getProductId())
-                        .orElseThrow(() -> new ResourceNotFoundException("Product", line.getProductId()));
+                Product product = findOwnedProduct(line.getProductId(), companyId);
                 BigDecimal unitPrice = line.getUnitPrice() != null ? line.getUnitPrice() : (product.getSalePrice() != null ? product.getSalePrice() : BigDecimal.ZERO);
                 BigDecimal qty = line.getQuantity() != null ? line.getQuantity() : BigDecimal.ONE;
                 BigDecimal lineDisc = line.getLineDiscount() != null ? line.getLineDiscount() : BigDecimal.ZERO;
@@ -316,8 +323,7 @@ public class SalesService {
 
     @Transactional
     public QuotationDto updateQuotation(Long id, CreateQuotationRequest request) {
-        SalesOrder so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Quotation", id));
+        SalesOrder so = findOwnedQuotation(id);
         if (request.getNotes() != null) so.setNotes(request.getNotes());
         if (request.getValidUntil() != null) so.setValidUntil(parseValidUntil(request.getValidUntil()));
         return toQuotationDto(salesOrderRepository.save(so));
@@ -325,26 +331,43 @@ public class SalesService {
 
     @Transactional
     public QuotationDto sendQuotation(Long id) {
-        SalesOrder so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Quotation", id));
+        SalesOrder so = findOwnedQuotation(id);
         so.setStatus("sent");
         return toQuotationDto(salesOrderRepository.save(so));
     }
 
     @Transactional
     public QuotationDto cancelQuotation(Long id) {
-        SalesOrder so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Quotation", id));
+        SalesOrder so = findOwnedQuotation(id);
         so.setStatus("cancelled");
         return toQuotationDto(salesOrderRepository.save(so));
     }
 
     @Transactional
     public QuotationDto convertQuotation(Long id, String status) {
-        SalesOrder so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Quotation", id));
+        SalesOrder so = findOwnedQuotation(id);
         so.setStatus(status != null ? status : "converted");
         return toQuotationDto(salesOrderRepository.save(so));
+    }
+
+    /** 404s (not 403) on a quotation belonging to another company — same treatment as "doesn't exist". */
+    private SalesOrder findOwnedQuotation(Long id) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return salesOrderRepository.findByIdAndCompanyId(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Quotation", id));
+    }
+
+    /** 404s (not 403) on a product belonging to another company — same treatment as "doesn't exist". */
+    private Product findOwnedProduct(Long id, Long companyId) {
+        return productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+    }
+
+    /** 404s (not 403) on an invoice belonging to another company — same treatment as "doesn't exist". */
+    private Invoice findOwnedInvoice(Long id) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        return invoiceRepository.findByIdAndCompanyId(id, companyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Sale", id));
     }
 
     private QuotationDto toQuotationDto(SalesOrder so) {
@@ -400,19 +423,21 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public Optional<CashierSessionDto> getActiveSession(Long branchId) {
-        Long userId = SecurityUtils.getCurrentUserId();
+        Long userId = SecurityUtils.requireCurrentUserId();
         return cashierSessionRepository.findByUserIdAndBranchIdAndStatus(userId, branchId, "OPEN")
                 .map(this::toSessionDto);
     }
 
     @Transactional
     public CashierSessionDto openSession(OpenSessionRequest request) {
-        Long userId = SecurityUtils.getCurrentUserId();
+        Long userId = SecurityUtils.requireCurrentUserId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         if (cashierSessionRepository.findByUserIdAndBranchIdAndStatus(userId, request.getBranchId(), "OPEN").isPresent()) {
             throw new BusinessException("SESSION_ALREADY_OPEN", "You already have an active shift session in this branch.");
         }
 
         Branch branch = branchRepository.findByIdAndDeletedAtIsNull(request.getBranchId())
+                .filter(b -> b.getCompany().getId().equals(companyId))
                 .orElseThrow(() -> new ResourceNotFoundException("Branch", request.getBranchId()));
 
         User user = userRepository.findByIdAndDeletedAtIsNull(userId)
@@ -432,7 +457,8 @@ public class SalesService {
 
     @Transactional
     public CashierSessionDto closeSession(Long sessionId, CloseSessionRequest request) {
-        CashierSession session = cashierSessionRepository.findById(sessionId)
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+        CashierSession session = cashierSessionRepository.findByIdAndBranchCompanyId(sessionId, companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("CashierSession", sessionId));
 
         if (!"OPEN".equals(session.getStatus())) {
@@ -452,9 +478,11 @@ public class SalesService {
 
     @Transactional
     public InvoiceDto processCheckout(CheckoutRequest request) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
+
         // Idempotency check
         if (request.getIdempotencyKey() != null) {
-            Optional<Invoice> existing = invoiceRepository.findByIdempotencyKey(request.getIdempotencyKey());
+            Optional<Invoice> existing = invoiceRepository.findByIdempotencyKeyAndCompanyId(request.getIdempotencyKey(), companyId);
             if (existing.isPresent()) {
                 return toInvoiceDto(existing.get());
             }
@@ -470,20 +498,37 @@ public class SalesService {
             throw new BusinessException("CREDIT_SALE_REQUIRES_TERM", "A credit sale requires a credit term.", org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY);
         }
 
-        Long branchId = request.getBranchId() != null ? request.getBranchId() : 1L;
-        Long warehouseId = request.getWarehouseId() != null ? request.getWarehouseId() : 1L;
-        Long customerId = request.getCustomerId() != null ? request.getCustomerId() : 1L;
+        Long branchId = request.getBranchId() != null ? request.getBranchId() : SecurityUtils.requireCurrentBranchId();
 
-        Long userId = SecurityUtils.getCurrentUserId();
+        Long userId = SecurityUtils.requireCurrentUserId();
+
+        Branch branch = branchRepository.findByIdAndDeletedAtIsNull(branchId)
+                .filter(b -> b.getCompany().getId().equals(companyId))
+                .orElseThrow(() -> new ResourceNotFoundException("Branch", branchId));
+
+        Company company = branch.getCompany();
+
+        Long warehouseId = request.getWarehouseId() != null ? request.getWarehouseId() : null;
+        if (warehouseId == null) {
+            throw new BusinessException("WAREHOUSE_REQUIRED", "A warehouse must be specified to check out.");
+        }
+        Warehouse warehouse = warehouseRepository.findByIdAndDeletedAtIsNull(warehouseId)
+                .filter(w -> w.getBranch().getCompany().getId().equals(companyId))
+                .orElseThrow(() -> new ResourceNotFoundException("Warehouse", warehouseId));
+
+        Customer customer = (request.getCustomerId() != null
+                ? customerRepository.findByIdAndCompanyIdAndDeletedAtIsNull(request.getCustomerId(), companyId)
+                : Optional.<Customer>empty())
+                .orElseGet(() -> getOrCreateDefaultCustomer(company));
+
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", userId));
+
         CashierSession session = cashierSessionRepository.findByUserIdAndBranchIdAndStatus(userId, branchId, "OPEN")
                 .orElseGet(() -> {
-                    Branch b = branchRepository.findByIdAndDeletedAtIsNull(branchId)
-                            .orElseGet(() -> branchRepository.findAll().stream().findFirst().orElseThrow());
-                    User u = userRepository.findByIdAndDeletedAtIsNull(userId)
-                            .orElseGet(() -> userRepository.findAll().stream().findFirst().orElseThrow());
                     CashierSession newSession = CashierSession.builder()
-                            .branch(b)
-                            .user(u)
+                            .branch(branch)
+                            .user(user)
                             .initialCash(BigDecimal.valueOf(1000))
                             .expectedCash(BigDecimal.valueOf(1000))
                             .status("OPEN")
@@ -491,22 +536,6 @@ public class SalesService {
                             .build();
                     return cashierSessionRepository.save(newSession);
                 });
-
-        Branch branch = branchRepository.findByIdAndDeletedAtIsNull(branchId)
-                .orElseGet(() -> branchRepository.findAll().stream().findFirst().orElseThrow());
-
-        Company company = branch.getCompany();
-
-        Warehouse warehouse = warehouseRepository.findByIdAndDeletedAtIsNull(warehouseId)
-                .orElseGet(() -> warehouseRepository.findAll().stream().findFirst().orElseThrow());
-
-        Customer customer = (customerId != null
-                ? customerRepository.findByIdAndDeletedAtIsNull(customerId)
-                : Optional.<Customer>empty())
-                .orElseGet(() -> getOrCreateDefaultCustomer(company));
-
-        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
-                .orElseGet(() -> userRepository.findAll().stream().findFirst().orElseThrow());
 
         String series = "B001";
         // Correlative per company (not System.currentTimeMillis()), so the visible folio
@@ -521,7 +550,7 @@ public class SalesService {
             // Links the resulting invoice back to the quotation it was converted from
         // (Ventas' "Ver Nota de Venta" column needs this to resolve the other way).
         SalesOrder sourceQuotation = request.getQuotationId() != null
-                ? salesOrderRepository.findById(request.getQuotationId()).orElse(null)
+                ? salesOrderRepository.findByIdAndCompanyId(request.getQuotationId(), companyId).orElse(null)
                 : null;
 
         Invoice invoice = Invoice.builder()
@@ -542,10 +571,10 @@ public class SalesService {
                 .createdBy(user)
                 .build();
 
+        List<StockChange> stockChanges = new ArrayList<>();
         if (request.getItems() != null) {
             for (var itemReq : request.getItems()) {
-                Product product = productRepository.findByIdAndDeletedAtIsNull(itemReq.getProductId())
-                        .orElseThrow(() -> new ResourceNotFoundException("Product", itemReq.getProductId()));
+                Product product = findOwnedProduct(itemReq.getProductId(), companyId);
 
                 BigDecimal unitPrice = itemReq.getUnitPrice() != null ? itemReq.getUnitPrice()
                         : (product.getSalePrice() != null ? product.getSalePrice() : (product.getSellingPrice() != null ? product.getSellingPrice() : BigDecimal.ZERO));
@@ -569,6 +598,8 @@ public class SalesService {
                 BigDecimal currentStock = stock.getQuantityAvailable() != null ? stock.getQuantityAvailable() : BigDecimal.ZERO;
                 stock.setQuantityAvailable(currentStock.subtract(qty));
                 stockLevelRepository.save(stock);
+                stockChanges.add(new StockChange(product.getId(), product.getMinStockAlert(),
+                        currentStock, stock.getQuantityAvailable()));
 
                 BigDecimal lineGross = qty.multiply(unitPrice);
                 BigDecimal lineDiscount = itemReq.getDiscountAmount() != null ? itemReq.getDiscountAmount() : BigDecimal.ZERO;
@@ -660,20 +691,21 @@ public class SalesService {
         cashierSessionRepository.save(session);
 
         Invoice saved = invoiceRepository.save(invoice);
+        realtimeEvents.stockChanged(warehouse, stockChanges);
+        auditLogService.record("Venta registrada", "Venta", String.valueOf(saved.getId()),
+                series + "-" + number, null, "Total: " + saved.getTotalAmount());
+        realtimeEvents.sale(SaleEvent.Type.CREATED, branchId, saved.getId(), series + "-" + number);
         return toInvoiceDto(saved);
     }
 
     @Transactional(readOnly = true)
     public InvoiceDto getSaleById(Long id) {
-        Invoice invoice = invoiceRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Sale", id));
-        return toInvoiceDto(invoice);
+        return toInvoiceDto(findOwnedInvoice(id));
     }
 
     @Transactional(readOnly = true)
     public byte[] generateQuotationPdf(Long id) {
-        SalesOrder so = salesOrderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Quotation", id));
+        SalesOrder so = findOwnedQuotation(id);
         Company company = so.getCompany();
         Customer customer = so.getCustomer();
 
@@ -730,8 +762,7 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public byte[] generateSalePdf(Long id) {
-        Invoice invoice = invoiceRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Sale", id));
+        Invoice invoice = findOwnedInvoice(id);
         Company company = invoice.getCompany();
         Customer customer = invoice.getCustomer();
 
@@ -791,8 +822,7 @@ public class SalesService {
 
     @Transactional
     public InvoiceDto voidSale(Long id) {
-        Invoice invoice = invoiceRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Sale", id));
+        Invoice invoice = findOwnedInvoice(id);
 
         if ("VOIDED".equalsIgnoreCase(invoice.getStatus())) {
             throw new BusinessException("ALREADY_VOIDED", "La venta ya se encuentra anulada.");
@@ -802,8 +832,9 @@ public class SalesService {
 
         // Restore stock for each item in the invoice
         Warehouse warehouse = invoice.getWarehouse();
-        Long currentUserId = SecurityUtils.getCurrentUserId();
-        User user = currentUserId != null ? userRepository.findById(currentUserId).orElse(null) : null;
+        Long currentUserId = SecurityUtils.requireCurrentUserId();
+        User user = userRepository.findById(currentUserId).orElse(null);
+        List<StockChange> stockChanges = new ArrayList<>();
 
         for (InvoiceItem item : invoice.getItems()) {
             if (item.getProduct() != null && warehouse != null) {
@@ -818,9 +849,11 @@ public class SalesService {
                                 .quantityInTransit(BigDecimal.ZERO)
                                 .build());
 
-                BigDecimal restoredQty = stock.getQuantityAvailable().add(item.getQuantity());
+                BigDecimal availableBefore = stock.getQuantityAvailable();
+                BigDecimal restoredQty = availableBefore.add(item.getQuantity());
                 stock.setQuantityAvailable(restoredQty);
                 stockLevelRepository.save(stock);
+                stockChanges.add(new StockChange(product.getId(), product.getMinStockAlert(), availableBefore, restoredQty));
 
                 StockMovement movement = StockMovement.builder()
                         .warehouse(warehouse)
@@ -839,21 +872,26 @@ public class SalesService {
         }
 
         Invoice saved = invoiceRepository.save(invoice);
+        String folio = saved.getSeries() + "-" + saved.getNumber();
+        auditLogService.record("Venta anulada", "Venta", String.valueOf(saved.getId()), folio, null, null);
+        if (warehouse != null) {
+            realtimeEvents.stockChanged(warehouse, stockChanges);
+        }
+        realtimeEvents.sale(SaleEvent.Type.VOIDED, saved.getBranch().getId(), saved.getId(), folio);
         return toInvoiceDto(saved);
     }
 
     @Transactional
-    public InvoiceDto recordPayment(Long id, Map<String, Object> payload) {
-        Invoice invoice = invoiceRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Sale", id));
+    public InvoiceDto recordPayment(Long id, RecordPaymentRequest request) {
+        Invoice invoice = findOwnedInvoice(id);
 
         if ("VOIDED".equalsIgnoreCase(invoice.getStatus())) {
             throw new BusinessException("SALE_VOIDED", "No se pueden registrar pagos en una venta anulada.");
         }
 
-        BigDecimal amount = new BigDecimal(String.valueOf(payload.getOrDefault("amount", 0)));
-        String method = String.valueOf(payload.getOrDefault("paymentMethod", "CASH")).toUpperCase();
-        String note = String.valueOf(payload.getOrDefault("note", ""));
+        BigDecimal amount = request.getAmount();
+        String method = request.getPaymentMethod().toUpperCase();
+        String note = request.getNote() != null ? request.getNote() : "";
 
         Payment payment = Payment.builder()
                 .invoice(invoice)
@@ -866,15 +904,22 @@ public class SalesService {
         invoice.getPayments().add(payment);
 
         Invoice saved = invoiceRepository.save(invoice);
+        String folio = saved.getSeries() + "-" + saved.getNumber();
+        auditLogService.record("Pago registrado", "Venta", String.valueOf(saved.getId()), folio,
+                null, "Monto: " + amount + " (" + method + ")");
+        realtimeEvents.sale(SaleEvent.Type.PAYMENT_RECORDED, saved.getBranch().getId(), saved.getId(), folio);
         return toInvoiceDto(saved);
     }
 
     @Transactional(readOnly = true)
     public Page<InvoiceDto> getInvoices(Long branchId, Pageable pageable) {
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         if (branchId != null) {
+            branchRepository.findByIdAndDeletedAtIsNull(branchId)
+                    .filter(b -> b.getCompany().getId().equals(companyId))
+                    .orElseThrow(() -> new ResourceNotFoundException("Branch", branchId));
             return invoiceRepository.findByBranchIdOrderByCreatedAtDesc(branchId, pageable).map(this::toInvoiceDto);
         }
-        Long companyId = SecurityUtils.getCurrentCompanyId();
         return invoiceRepository.findByCompanyIdOrderByCreatedAtDesc(companyId, pageable).map(this::toInvoiceDto);
     }
 
@@ -1043,7 +1088,7 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public Page<PriceAdjustmentDto> getPriceAdjustments(String search, String dateFrom, String dateTo, Pageable pageable) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         String term = (search != null && !search.isBlank()) ? search.trim() : null;
         Instant from = com.boxy.boxy.core.web.DateFilterParser.parseStart(dateFrom);
         Instant to = com.boxy.boxy.core.web.DateFilterParser.parseEnd(dateTo);
@@ -1053,7 +1098,7 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public PriceAdjustmentDto getPriceAdjustmentById(Long id) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         PriceAdjustment pa = priceAdjustmentRepository.findByIdAndCompanyId(id, companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("PriceAdjustment", id));
         return toPriceAdjustmentDto(pa);
@@ -1061,7 +1106,7 @@ public class SalesService {
 
     @Transactional
     public PriceAdjustmentDto createPriceAdjustment(CreatePriceAdjustmentRequest request) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Company company = companyRepository.findById(companyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Company", companyId));
 
@@ -1097,7 +1142,7 @@ public class SalesService {
                 continue;
             }
 
-            Product product = productRepository.findByIdAndDeletedAtIsNull(prodId).orElse(null);
+            Product product = productRepository.findByIdAndCompanyIdAndDeletedAtIsNull(prodId, companyId).orElse(null);
             if (product == null) {
                 continue;
             }
@@ -1145,6 +1190,8 @@ public class SalesService {
         }
 
         PriceAdjustment saved = priceAdjustmentRepository.save(pa);
+        auditLogService.record("Ajuste de precios aplicado", "Ajuste de Precio", String.valueOf(saved.getId()),
+                saved.getFolio(), null, saved.getLines().size() + " producto(s)");
         return toPriceAdjustmentDto(saved);
     }
 
@@ -1211,7 +1258,7 @@ public class SalesService {
                                                     String saleStatus, Long customerId,
                                                     String dateFrom, String dateTo,
                                                     Pageable pageable) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
         Instant from = com.boxy.boxy.core.web.DateFilterParser.parseStart(dateFrom);
         Instant to = com.boxy.boxy.core.web.DateFilterParser.parseEnd(dateTo);
 
@@ -1324,7 +1371,7 @@ public class SalesService {
 
     @Transactional(readOnly = true)
     public SalesSummaryDto getSalesSummary(Long branchId, Long customerId) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
 
         List<Invoice> invoices = invoiceRepository.findByCompanyId(companyId);
         BigDecimal collected = BigDecimal.ZERO;
@@ -1385,7 +1432,7 @@ public class SalesService {
      */
     @Transactional(readOnly = true)
     public NextFolioPreviewDto getNextFolioPreview() {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
 
         return NextFolioPreviewDto.builder()
                 .sale(String.format("V-%05d", documentSequenceService.peekNext(companyId, DocumentType.SALE)))
@@ -1518,7 +1565,7 @@ public class SalesService {
     }
 
     private List<CreditSaleListItemDto> filterReceivables(String search, String status, String dateFrom, String dateTo) {
-        Long companyId = SecurityUtils.getCurrentCompanyId();
+        Long companyId = SecurityUtils.requireCurrentCompanyId();
 
         java.time.Instant from = com.boxy.boxy.core.web.DateFilterParser.parseStart(dateFrom);
         java.time.Instant to = com.boxy.boxy.core.web.DateFilterParser.parseEnd(dateTo);
